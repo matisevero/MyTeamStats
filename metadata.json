@@ -1,0 +1,5 @@
+{
+  "name": "MyTeamStats - Gestor de Equipos",
+  "description": "Gestiona tu equipo de fútbol. Registra partidos, sigue las estadísticas de tus jugadores, analiza el rendimiento del equipo y compite en la tabla de posiciones.",
+  "requestFramePermissions": []
+}
