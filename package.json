@@ -1,5 +1,5 @@
 {
-  "name": "myteamstats---gestor-de-equipos",
+  "name": "myteamstats-v2---gestor-de-equipos",
   "private": true,
   "version": "0.0.0",
   "type": "module",
@@ -13,7 +13,8 @@
     "react-dom": "^19.2.0",
     "@google/genai": "^1.20.0",
     "html-to-image": "^1.11.13",
-    "pako": "^2.1.0"
+    "pako": "^2.1.0",
+    "firebase": "^12.6.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",

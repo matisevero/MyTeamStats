@@ -1,9 +1,11 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useData } from '../contexts/DataContext';
 import { TableIcon } from '../components/icons/TableIcon';
 import RadarChart from '../components/charts/RadarChart';
 import Card from '../components/common/Card';
+import OpponentDetailModal from '../components/modals/OpponentDetailModal';
 
 interface YearlyStats {
   year: number;
@@ -29,6 +31,19 @@ interface TournamentStats {
   goalDifference: number;
 }
 
+interface OpponentStats {
+  opponent: string;
+  matchesPlayed: number;
+  wins: number;
+  draws: number;
+  losses: number;
+  points: number;
+  goalsFor: number;
+  goalsAgainst: number;
+  goalDifference: number;
+  effectiveness: number;
+}
+
 const radarMetrics: { label: string; key: keyof YearlyStats }[] = [
     { label: 'Pts', key: 'points' },
     { label: 'PJ', key: 'matchesPlayed' },
@@ -40,26 +55,29 @@ const radarMetrics: { label: string; key: keyof YearlyStats }[] = [
 
 const TablePage: React.FC = () => {
   const { theme } = useTheme();
-  const { matches } = useData();
+  const { matches, activeTeams } = useData();
   const [sortConfig, setSortConfig] = useState<{ key: keyof YearlyStats; direction: 'asc' | 'desc' }>({ key: 'year', direction: 'desc' });
   const [tournamentSortConfig, setTournamentSortConfig] = useState<{ key: keyof TournamentStats; direction: 'asc' | 'desc' }>({ key: 'points', direction: 'desc' });
+  const [opponentSortConfig, setOpponentSortConfig] = useState<{ key: keyof OpponentStats; direction: 'asc' | 'desc' }>({ key: 'matchesPlayed', direction: 'desc' });
   const [selectedTeam, setSelectedTeam] = useState<string>('all');
+  const [selectedOpponent, setSelectedOpponent] = useState<string | null>(null);
   
   const [visibleYears, setVisibleYears] = useState<Set<number>>(new Set());
+  
+  const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 992);
 
-  const myTeams = useMemo(() => {
-    const teams = new Set<string>();
-    matches.forEach(m => {
-        if (m.teamName) teams.add(m.teamName);
-    });
-    return Array.from(teams).sort();
-  }, [matches]);
+  useEffect(() => {
+    const handleResize = () => setIsDesktop(window.innerWidth >= 992);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
   
   const relevantMatches = useMemo(() => {
-    return selectedTeam === 'all'
-        ? matches
-        : matches.filter(m => m.teamName === selectedTeam);
-  }, [matches, selectedTeam]);
+    if (selectedTeam === 'all') {
+        return matches.filter(m => activeTeams.includes(m.teamName));
+    }
+    return matches.filter(m => m.teamName === selectedTeam);
+  }, [matches, selectedTeam, activeTeams]);
 
   const yearlyData = useMemo(() => {
     const statsByYear: Record<number, Omit<YearlyStats, 'year' | 'goalDifference'>> = {};
@@ -135,6 +153,45 @@ const TablePage: React.FC = () => {
     });
   }, [relevantMatches]);
 
+  const opponentData = useMemo(() => {
+    const statsByOpponent: Record<string, Omit<OpponentStats, 'opponent' | 'goalDifference' | 'effectiveness'>> = {};
+
+    relevantMatches.forEach(match => {
+        const opponent = match.opponentName || 'Desconocido';
+        if (!statsByOpponent[opponent]) {
+            statsByOpponent[opponent] = {
+                matchesPlayed: 0, wins: 0, draws: 0, losses: 0, points: 0,
+                goalsFor: 0, goalsAgainst: 0,
+            };
+        }
+
+        const oppStats = statsByOpponent[opponent];
+        oppStats.matchesPlayed++;
+        if (match.result === 'VICTORIA') {
+            oppStats.wins++;
+            oppStats.points += 3;
+        } else if (match.result === 'EMPATE') {
+            oppStats.draws++;
+            oppStats.points += 1;
+        } else {
+            oppStats.losses++;
+        }
+        oppStats.goalsFor += match.teamScore;
+        oppStats.goalsAgainst += match.opponentScore;
+    });
+
+    return Object.entries(statsByOpponent).map(([opponent, stats]) => {
+        const { goalsFor, goalsAgainst, points, matchesPlayed } = stats;
+        const maxPoints = matchesPlayed * 3;
+        return {
+            ...stats,
+            opponent: opponent,
+            goalDifference: goalsFor - goalsAgainst,
+            effectiveness: maxPoints > 0 ? (points / maxPoints) * 100 : 0
+        };
+    });
+  }, [relevantMatches]);
+
   const maxValues = useMemo(() => {
     if (yearlyData.length === 0) return {};
     const maxes: Partial<Record<keyof YearlyStats, number>> = {};
@@ -180,6 +237,19 @@ const TablePage: React.FC = () => {
     });
   }, [tournamentData, tournamentSortConfig]);
 
+  const sortedOpponentData = useMemo(() => {
+    return [...opponentData].sort((a, b) => {
+        if (opponentSortConfig.key === 'opponent') {
+            return opponentSortConfig.direction === 'asc' ? a.opponent.localeCompare(b.opponent) : b.opponent.localeCompare(a.opponent);
+        }
+        const aVal = a[opponentSortConfig.key] as number;
+        const bVal = b[opponentSortConfig.key] as number;
+        if (aVal < bVal) return opponentSortConfig.direction === 'asc' ? -1 : 1;
+        if (aVal > bVal) return opponentSortConfig.direction === 'asc' ? 1 : -1;
+        return 0;
+    });
+  }, [opponentData, opponentSortConfig]);
+
   const requestSort = (key: keyof YearlyStats) => {
     let direction: 'asc' | 'desc' = 'desc';
     if (sortConfig.key === key && sortConfig.direction === 'desc') { direction = 'asc'; }
@@ -192,6 +262,12 @@ const TablePage: React.FC = () => {
     setTournamentSortConfig({ key, direction });
   };
 
+  const requestOpponentSort = (key: keyof OpponentStats) => {
+    let direction: 'asc' | 'desc' = 'desc';
+    if (opponentSortConfig.key === key && opponentSortConfig.direction === 'desc') { direction = 'asc'; }
+    setOpponentSortConfig({ key, direction });
+  };
+
   const getSortIndicator = (key: keyof YearlyStats) => {
     if (sortConfig.key !== key) return null;
     return sortConfig.direction === 'desc' ? ' ↓' : ' ↑';
@@ -200,6 +276,11 @@ const TablePage: React.FC = () => {
   const getTournamentSortIndicator = (key: keyof TournamentStats) => {
     if (tournamentSortConfig.key !== key) return null;
     return tournamentSortConfig.direction === 'desc' ? ' ↓' : ' ↑';
+  };
+
+  const getOpponentSortIndicator = (key: keyof OpponentStats) => {
+    if (opponentSortConfig.key !== key) return null;
+    return opponentSortConfig.direction === 'desc' ? ' ↓' : ' ↑';
   };
   
   const historicalMaxValuesForRadar = useMemo(() => {
@@ -259,7 +340,8 @@ const TablePage: React.FC = () => {
 
   const headers: { key: keyof YearlyStats; label: string; isNumeric: boolean }[] = [ { key: 'year', label: 'Año', isNumeric: true }, { key: 'points', label: 'Pts', isNumeric: true }, { key: 'matchesPlayed', label: 'PJ', isNumeric: true }, { key: 'wins', label: 'V', isNumeric: true }, { key: 'draws', label: 'E', isNumeric: true }, { key: 'losses', label: 'D', isNumeric: true }, { key: 'goalsFor', label: 'GF', isNumeric: true }, { key: 'goalsAgainst', label: 'GC', isNumeric: true }, { key: 'goalDifference', label: 'DG', isNumeric: true }];
   const tournamentHeaders: { key: keyof TournamentStats; label: string; isNumeric: boolean }[] = [ { key: 'tournament', label: 'Torneo', isNumeric: false }, { key: 'points', label: 'Pts', isNumeric: true }, { key: 'matchesPlayed', label: 'PJ', isNumeric: true }, { key: 'wins', label: 'V', isNumeric: true }, { key: 'draws', label: 'E', isNumeric: true }, { key: 'losses', label: 'D', isNumeric: true }, { key: 'goalsFor', label: 'GF', isNumeric: true }, { key: 'goalsAgainst', label: 'GC', isNumeric: true }, { key: 'goalDifference', label: 'DG', isNumeric: true }];
-  
+  const opponentHeaders: { key: keyof OpponentStats; label: string; isNumeric: boolean }[] = [ { key: 'opponent', label: 'Rival', isNumeric: false }, { key: 'matchesPlayed', label: 'PJ', isNumeric: true }, { key: 'wins', label: 'V', isNumeric: true }, { key: 'draws', label: 'E', isNumeric: true }, { key: 'losses', label: 'D', isNumeric: true }, { key: 'goalsFor', label: 'GF', isNumeric: true }, { key: 'goalsAgainst', label: 'GC', isNumeric: true }, { key: 'effectiveness', label: '% Efect.', isNumeric: true }];
+
   const getCellStyling = (stats: YearlyStats, key: keyof YearlyStats): React.CSSProperties => {
     const value = stats[key];
     const isPositiveMax = ['points', 'wins', 'goalsFor', 'goalDifference'].includes(key);
@@ -271,7 +353,34 @@ const TablePage: React.FC = () => {
 
   const styles: { [key: string]: React.CSSProperties } = {
     container: { maxWidth: '1200px', margin: '0 auto', padding: `${theme.spacing.extraLarge} ${theme.spacing.medium}`, display: 'flex', flexDirection: 'column', gap: theme.spacing.large },
+    header: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: theme.spacing.large,
+        flexWrap: 'wrap',
+    },
     pageTitle: { fontSize: theme.typography.fontSize.extraLarge, fontWeight: 700, color: theme.colors.primaryText, margin: 0, borderLeft: `4px solid ${theme.colors.accent1}`, paddingLeft: theme.spacing.medium },
+    filterContainer: {
+        display: 'flex',
+        alignItems: 'center',
+        gap: theme.spacing.medium,
+        flex: 1,
+        maxWidth: '400px',
+        minWidth: '250px',
+    },
+    filterLabel: { color: theme.colors.secondaryText, fontSize: theme.typography.fontSize.small, fontWeight: 500 },
+    filterSelect: {
+        flex: 1,
+        backgroundColor: theme.colors.surface,
+        color: theme.colors.primaryText,
+        border: `1px solid ${theme.colors.borderStrong}`,
+        borderRadius: theme.borderRadius.medium,
+        padding: theme.spacing.small,
+        fontSize: theme.typography.fontSize.small,
+        fontWeight: 600,
+        cursor: 'pointer',
+    },
     tableWrapper: { overflowX: 'auto', backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.large, border: `1px solid ${theme.colors.border}`, boxShadow: theme.shadows.medium },
     table: { width: '100%', borderCollapse: 'collapse' },
     th: { padding: `${theme.spacing.small} ${theme.spacing.medium}`, textAlign: 'left', fontSize: theme.typography.fontSize.small, color: theme.colors.secondaryText, fontWeight: 600, borderBottom: `2px solid ${theme.colors.borderStrong}`, cursor: 'pointer', whiteSpace: 'nowrap' },
@@ -284,16 +393,16 @@ const TablePage: React.FC = () => {
     legendContainer: { display: 'flex', flexWrap: 'wrap', justifyContent: 'center', gap: theme.spacing.small, },
     legendButton: { background: 'none', border: `1px solid ${theme.colors.border}`, borderRadius: theme.borderRadius.medium, padding: `${theme.spacing.extraSmall} ${theme.spacing.small}`, cursor: 'pointer', display: 'flex', alignItems: 'center', gap: theme.spacing.small, fontSize: theme.typography.fontSize.small, transition: 'all 0.2s ease', },
     legendColorBox: { width: '12px', height: '12px', borderRadius: '3px' },
-    filterContainer: { display: 'flex', alignItems: 'center', gap: theme.spacing.medium },
-    filterLabel: { color: theme.colors.secondaryText, fontSize: theme.typography.fontSize.small, fontWeight: 500 },
-    filterSelect: { flex: 1, backgroundColor: theme.colors.background, color: theme.colors.primaryText, border: `1px solid ${theme.colors.borderStrong}`, borderRadius: theme.borderRadius.medium, padding: theme.spacing.small, fontSize: theme.typography.fontSize.small, fontWeight: 600, cursor: 'pointer', },
     sectionTitle: { fontSize: theme.typography.fontSize.large, fontWeight: 600, color: theme.colors.primaryText, marginBottom: 0, marginTop: theme.spacing.large },
+    desktopGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: theme.spacing.extraLarge, alignItems: 'start' },
+    column: { display: 'flex', flexDirection: 'column', gap: theme.spacing.large },
+    clickableRow: { cursor: 'pointer' }
   };
 
   if (matches.length === 0) {
     return (
         <main style={styles.container}>
-            <h2 style={styles.pageTitle}>Rendimiento anual del equipo</h2>
+            <h2 style={styles.pageTitle}>Historial y Rendimiento</h2>
             <div style={styles.noDataContainer}>
                 <TableIcon size={40} color={theme.colors.secondaryText} />
                 <p style={{ marginTop: theme.spacing.medium }}>No hay partidos registrados para mostrar en la tabla.</p>
@@ -302,56 +411,33 @@ const TablePage: React.FC = () => {
     )
   }
 
-  return (
+  const RadarChartComponent = yearlyData.length > 0 && (
+    <Card>
+        <div style={styles.chartAndLegendContainer}>
+            <RadarChart 
+                playersData={radarChartData} 
+                size={350} 
+                showLegend={false}
+                maxValues={historicalMaxValuesForRadar}
+            />
+            <div style={styles.legendContainer}>
+                {yearlyData.sort((a,b) => b.year - a.year).map((yearStat) => {
+                    const isVisible = visibleYears.has(yearStat.year);
+                    const color = radarChartData.find(d => d.name === yearStat.year.toString())?.color || theme.colors.secondaryText;
+                    return (
+                        <button key={yearStat.year} onClick={() => toggleYearVisibility(yearStat.year)} style={{...styles.legendButton, color: isVisible ? theme.colors.primaryText : theme.colors.secondaryText, opacity: isVisible ? 1 : 0.6 }}>
+                            <span style={{...styles.legendColorBox, backgroundColor: color }}></span>
+                            {yearStat.year}
+                        </button>
+                    );
+                })}
+            </div>
+        </div>
+    </Card>
+  );
+
+  const YearlyTableComponent = (
     <>
-    <style>{`
-        .table-row:hover { background-color: ${theme.colors.background}; }
-        .table-row:hover .sticky-column { background-color: ${theme.colors.background}; }
-        .subtle-scrollbar::-webkit-scrollbar { height: 8px; }
-        .subtle-scrollbar::-webkit-scrollbar-track { background: transparent; }
-        .subtle-scrollbar::-webkit-scrollbar-thumb { background-color: ${theme.colors.border}; border-radius: 10px; }
-        .subtle-scrollbar { scrollbar-width: thin; scrollbar-color: ${theme.colors.border} transparent; }
-    `}</style>
-    <main style={styles.container}>
-      <h2 style={styles.pageTitle}>Rendimiento anual del equipo</h2>
-
-      {myTeams.length > 1 && (
-        <Card>
-            <div style={styles.filterContainer}>
-                <label style={styles.filterLabel}>Mostrando rendimiento de:</label>
-                <select value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)} style={styles.filterSelect}>
-                    <option value="all">Todos mis equipos</option>
-                    {myTeams.map(team => <option key={team} value={team}>{team}</option>)}
-                </select>
-            </div>
-        </Card>
-      )}
-
-      {yearlyData.length > 0 && (
-          <Card>
-            <div style={styles.chartAndLegendContainer}>
-                <RadarChart 
-                  playersData={radarChartData} 
-                  size={350} 
-                  showLegend={false}
-                  maxValues={historicalMaxValuesForRadar}
-                />
-                <div style={styles.legendContainer}>
-                    {yearlyData.sort((a,b) => b.year - a.year).map((yearStat) => {
-                        const isVisible = visibleYears.has(yearStat.year);
-                        const color = radarChartData.find(d => d.name === yearStat.year.toString())?.color || theme.colors.secondaryText;
-                        return (
-                            <button key={yearStat.year} onClick={() => toggleYearVisibility(yearStat.year)} style={{...styles.legendButton, color: isVisible ? theme.colors.primaryText : theme.colors.secondaryText, opacity: isVisible ? 1 : 0.6 }}>
-                                <span style={{...styles.legendColorBox, backgroundColor: color }}></span>
-                                {yearStat.year}
-                            </button>
-                        );
-                    })}
-                </div>
-            </div>
-          </Card>
-      )}
-
       <h3 style={styles.sectionTitle}>Rendimiento Anual</h3>
       <div style={styles.tableWrapper} className="subtle-scrollbar">
         <table style={styles.table}>
@@ -366,58 +452,144 @@ const TablePage: React.FC = () => {
             </tr>
           </thead>
           <tbody>
-            {sortedYearlyData.map(stats => {
-                return (
-                  <tr key={stats.year} style={styles.tr} className="table-row">
-                    <td style={{...styles.td, ...styles.numeric, fontWeight: 700, ...styles.stickyColumn}} className="sticky-column">{stats.year}</td>
-                    <td style={{...styles.td, ...styles.numeric, fontWeight: 700, ...getCellStyling(stats, 'points')}}>{stats.points}</td>
-                    <td style={{...styles.td, ...styles.numeric, ...getCellStyling(stats, 'matchesPlayed')}}>{stats.matchesPlayed}</td>
-                    <td style={{...styles.td, ...styles.numeric, ...getCellStyling(stats, 'wins')}}>{stats.wins}</td>
-                    <td style={{...styles.td, ...styles.numeric}}>{stats.draws}</td>
-                    <td style={{...styles.td, ...styles.numeric, ...getCellStyling(stats, 'losses')}}>{stats.losses}</td>
-                    <td style={{...styles.td, ...styles.numeric, ...getCellStyling(stats, 'goalsFor')}}>{stats.goalsFor}</td>
-                    <td style={{...styles.td, ...styles.numeric, ...getCellStyling(stats, 'goalsAgainst')}}>{stats.goalsAgainst}</td>
-                    <td style={{...styles.td, ...styles.numeric, ...getCellStyling(stats, 'goalDifference')}}>{stats.goalDifference}</td>
-                  </tr>
-                );
-            })}
+            {sortedYearlyData.map(stats => (
+              <tr key={stats.year} style={styles.tr} className="table-row">
+                <td style={{...styles.td, ...styles.numeric, fontWeight: 700, ...styles.stickyColumn}} className="sticky-column">{stats.year}</td>
+                <td style={{...styles.td, ...styles.numeric, fontWeight: 700, ...getCellStyling(stats, 'points')}}>{stats.points}</td>
+                <td style={{...styles.td, ...styles.numeric, ...getCellStyling(stats, 'matchesPlayed')}}>{stats.matchesPlayed}</td>
+                <td style={{...styles.td, ...styles.numeric, ...getCellStyling(stats, 'wins')}}>{stats.wins}</td>
+                <td style={{...styles.td, ...styles.numeric}}>{stats.draws}</td>
+                <td style={{...styles.td, ...styles.numeric, ...getCellStyling(stats, 'losses')}}>{stats.losses}</td>
+                <td style={{...styles.td, ...styles.numeric, ...getCellStyling(stats, 'goalsFor')}}>{stats.goalsFor}</td>
+                <td style={{...styles.td, ...styles.numeric, ...getCellStyling(stats, 'goalsAgainst')}}>{stats.goalsAgainst}</td>
+                <td style={{...styles.td, ...styles.numeric, ...getCellStyling(stats, 'goalDifference')}}>{stats.goalDifference > 0 ? `+${stats.goalDifference}` : stats.goalDifference}</td>
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
+    </>
+  );
 
-      {tournamentData.length > 0 && (
-          <>
-            <h3 style={styles.sectionTitle}>Rendimiento por Torneo</h3>
-            <div style={styles.tableWrapper} className="subtle-scrollbar">
-                <table style={styles.table}>
-                    <thead>
-                        <tr>
-                            {tournamentHeaders.map((header, index) => (
-                                <th key={header.key} style={{...styles.th, ...(header.isNumeric && styles.numeric), ...(index === 0 && styles.stickyColumn) }} className={index === 0 ? 'sticky-column' : ''} onClick={() => requestTournamentSort(header.key as keyof TournamentStats)}>
-                                    {header.label}
-                                    {getTournamentSortIndicator(header.key as keyof TournamentStats)}
-                                </th>
-                            ))}
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {sortedTournamentData.map(stats => (
-                            <tr key={stats.tournament} style={styles.tr} className="table-row">
-                                <td style={{...styles.td, fontWeight: 700, ...styles.stickyColumn}} className="sticky-column">{stats.tournament}</td>
-                                <td style={{...styles.td, ...styles.numeric, fontWeight: 700}}>{stats.points}</td>
-                                <td style={{...styles.td, ...styles.numeric}}>{stats.matchesPlayed}</td>
-                                <td style={{...styles.td, ...styles.numeric}}>{stats.wins}</td>
-                                <td style={{...styles.td, ...styles.numeric}}>{stats.draws}</td>
-                                <td style={{...styles.td, ...styles.numeric}}>{stats.losses}</td>
-                                <td style={{...styles.td, ...styles.numeric}}>{stats.goalsFor}</td>
-                                <td style={{...styles.td, ...styles.numeric}}>{stats.goalsAgainst}</td>
-                                <td style={{...styles.td, ...styles.numeric}}>{stats.goalDifference}</td>
-                            </tr>
-                        ))}
-                    </tbody>
-                </table>
+  const TournamentTableComponent = tournamentData.length > 0 && (
+    <>
+      <h3 style={styles.sectionTitle}>Rendimiento por Torneo</h3>
+      <div style={styles.tableWrapper} className="subtle-scrollbar">
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              {tournamentHeaders.map((header, index) => (
+                <th key={header.key} style={{...styles.th, ...(header.isNumeric && styles.numeric), ...(index === 0 && styles.stickyColumn) }} className={index === 0 ? 'sticky-column' : ''} onClick={() => requestTournamentSort(header.key as keyof TournamentStats)}>
+                  {header.label}
+                  {getTournamentSortIndicator(header.key as keyof TournamentStats)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sortedTournamentData.map(stats => (
+              <tr key={stats.tournament} style={styles.tr} className="table-row">
+                <td style={{...styles.td, fontWeight: 700, ...styles.stickyColumn}} className="sticky-column">{stats.tournament}</td>
+                <td style={{...styles.td, ...styles.numeric, fontWeight: 700}}>{stats.points}</td>
+                <td style={{...styles.td, ...styles.numeric}}>{stats.matchesPlayed}</td>
+                <td style={{...styles.td, ...styles.numeric}}>{stats.wins}</td>
+                <td style={{...styles.td, ...styles.numeric}}>{stats.draws}</td>
+                <td style={{...styles.td, ...styles.numeric}}>{stats.losses}</td>
+                <td style={{...styles.td, ...styles.numeric}}>{stats.goalsFor}</td>
+                <td style={{...styles.td, ...styles.numeric}}>{stats.goalsAgainst}</td>
+                <td style={{...styles.td, ...styles.numeric}}>{stats.goalDifference > 0 ? `+${stats.goalDifference}` : stats.goalDifference}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+
+  const OpponentTableComponent = opponentData.length > 0 && (
+    <>
+      <h3 style={styles.sectionTitle}>Historial vs Rivales</h3>
+      <div style={styles.tableWrapper} className="subtle-scrollbar">
+        <table style={styles.table}>
+          <thead>
+            <tr>
+              {opponentHeaders.map((header, index) => (
+                <th key={header.key} style={{...styles.th, ...(header.isNumeric && styles.numeric), ...(index === 0 && styles.stickyColumn) }} className={index === 0 ? 'sticky-column' : ''} onClick={() => requestOpponentSort(header.key as keyof OpponentStats)}>
+                  {header.label}
+                  {getOpponentSortIndicator(header.key as keyof OpponentStats)}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {sortedOpponentData.map(stats => (
+              <tr key={stats.opponent} style={{...styles.tr, ...styles.clickableRow}} className="table-row" onClick={() => setSelectedOpponent(stats.opponent)}>
+                <td style={{...styles.td, fontWeight: 700, ...styles.stickyColumn, cursor: 'pointer'}} className="sticky-column">{stats.opponent}</td>
+                <td style={{...styles.td, ...styles.numeric}}>{stats.matchesPlayed}</td>
+                <td style={{...styles.td, ...styles.numeric, color: theme.colors.win, fontWeight: 600}}>{stats.wins}</td>
+                <td style={{...styles.td, ...styles.numeric, color: theme.colors.draw, fontWeight: 600}}>{stats.draws}</td>
+                <td style={{...styles.td, ...styles.numeric, color: theme.colors.loss, fontWeight: 600}}>{stats.losses}</td>
+                <td style={{...styles.td, ...styles.numeric}}>{stats.goalsFor}</td>
+                <td style={{...styles.td, ...styles.numeric}}>{stats.goalsAgainst}</td>
+                <td style={{...styles.td, ...styles.numeric}}>{stats.effectiveness.toFixed(0)}%</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    </>
+  );
+
+  return (
+    <>
+    <style>{`
+        .table-row:hover { background-color: ${theme.colors.background}; }
+        .table-row:hover .sticky-column { background-color: ${theme.colors.background}; }
+        .subtle-scrollbar::-webkit-scrollbar { height: 8px; }
+        .subtle-scrollbar::-webkit-scrollbar-track { background: transparent; }
+        .subtle-scrollbar::-webkit-scrollbar-thumb { background-color: ${theme.colors.border}; border-radius: 10px; }
+        .subtle-scrollbar { scrollbar-width: thin; scrollbar-color: ${theme.colors.border} transparent; }
+    `}</style>
+    <main style={styles.container}>
+        <div style={styles.header}>
+            <h2 style={styles.pageTitle}>Historial y Rendimiento</h2>
+            {activeTeams.length > 1 && (
+                <div style={styles.filterContainer}>
+                    <label style={styles.filterLabel}>Mostrando para:</label>
+                    <select value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)} style={styles.filterSelect}>
+                        <option value="all">Todos mis equipos</option>
+                        {activeTeams.map(team => <option key={team} value={team}>{team}</option>)}
+                    </select>
+                </div>
+            )}
+        </div>
+
+        {selectedOpponent && (
+            <OpponentDetailModal 
+                opponentName={selectedOpponent}
+                matches={relevantMatches.filter(m => m.opponentName === selectedOpponent)}
+                onClose={() => setSelectedOpponent(null)}
+            />
+        )}
+
+      {isDesktop ? (
+          <div style={styles.desktopGrid}>
+            <div style={styles.column}>
+              {RadarChartComponent}
+              {OpponentTableComponent}
             </div>
-          </>
+            <div style={styles.column}>
+              {YearlyTableComponent}
+              {TournamentTableComponent}
+            </div>
+          </div>
+      ) : (
+        <>
+          {RadarChartComponent}
+          {OpponentTableComponent}
+          {YearlyTableComponent}
+          {TournamentTableComponent}
+        </>
       )}
     </main>
     </>

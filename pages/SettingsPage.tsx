@@ -1,6 +1,7 @@
-import React, { useRef, useState, useMemo } from 'react';
+import React, { useRef, useState, useMemo, useEffect } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useData } from '../contexts/DataContext';
+import { useAuth } from '../contexts/AuthContext';
 import pako from 'pako';
 import { StarIcon } from '../components/icons/StarIcon';
 import { PencilIcon } from '../components/icons/PencilIcon';
@@ -10,6 +11,13 @@ import SettingsSection from '../components/common/SettingsSection';
 import { UserPlusIcon } from '../components/icons/UserPlusIcon';
 import { ShareIcon } from '../components/icons/ShareIcon';
 import { AlertTriangleIcon } from '../components/icons/AlertTriangleIcon';
+import type { PlayerPerformance, TournamentSettings } from '../types';
+import { TrophyIcon } from '../components/icons/TrophyIcon';
+import { TrashIcon } from '../components/icons/TrashIcon';
+import { EyeIcon } from '../components/icons/EyeIcon';
+import { EyeSlashIcon } from '../components/icons/EyeSlashIcon';
+import { UserIcon } from '../components/icons/UserIcon';
+import { LogoutIcon } from '../components/icons/LogoutIcon';
 
 declare global {
   interface AIStudio {
@@ -67,31 +75,119 @@ const TeamEditModal: React.FC<{
     );
 };
 
+const TournamentEditModal: React.FC<{
+    tournamentName: string;
+    onClose: () => void;
+    onSave: (newName: string, settings: Partial<TournamentSettings>) => void;
+    initialSettings: TournamentSettings;
+}> = ({ tournamentName, onClose, onSave, initialSettings }) => {
+    const { theme } = useTheme();
+    const [name, setName] = useState(tournamentName);
+    const [duration, setDuration] = useState(initialSettings?.matchDuration?.toString() || '');
+    const [players, setPlayers] = useState(initialSettings?.playersPerSide?.toString() || '');
+    const [icon, setIcon] = useState(initialSettings?.icon || '🏆');
+    const [color, setColor] = useState(initialSettings?.color || '#FFC107');
+
+    const handleSave = () => {
+        onSave(name, {
+            matchDuration: duration ? parseInt(duration, 10) : undefined,
+            playersPerSide: players ? parseInt(players, 10) : undefined,
+            icon,
+            color,
+        });
+    };
+    
+    const styles = {
+        backdrop: { position: 'fixed', top: 0, left: 0, right: 0, bottom: 0, backgroundColor: 'rgba(0, 0, 0, 0.7)', zIndex: 3000, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: '1rem' },
+        modal: { backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.large, width: '90%', maxWidth: '450px', boxShadow: theme.shadows.large, border: `1px solid ${theme.colors.border}`, display: 'flex', flexDirection: 'column' as 'column', maxHeight: '90vh' },
+        header: { display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: `${theme.spacing.medium} ${theme.spacing.large}`, borderBottom: `1px solid ${theme.colors.border}` },
+        title: { margin: 0, fontSize: theme.typography.fontSize.large, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' as 'nowrap' },
+        content: { padding: theme.spacing.large, display: 'flex', flexDirection: 'column' as 'column', gap: theme.spacing.large, overflowY: 'auto' as 'auto' },
+        fieldGroup: { display: 'flex', flexDirection: 'column' as 'column', gap: theme.spacing.small },
+        label: { fontSize: theme.typography.fontSize.small, color: theme.colors.secondaryText, fontWeight: 500 },
+        input: { width: '100%', padding: theme.spacing.medium, backgroundColor: theme.colors.background, border: `1px solid ${theme.colors.borderStrong}`, borderRadius: theme.borderRadius.medium, color: theme.colors.primaryText, fontSize: theme.typography.fontSize.medium },
+        button: { padding: theme.spacing.medium, border: 'none', borderRadius: theme.borderRadius.medium, fontSize: theme.typography.fontSize.medium, fontWeight: 'bold', cursor: 'pointer', backgroundColor: theme.colors.accent1, color: theme.colors.textOnAccent, marginTop: theme.spacing.medium },
+    };
+
+    return (
+        <div style={styles.backdrop} onClick={onClose}>
+            <div style={styles.modal} onClick={e => e.stopPropagation()}>
+                <div style={styles.header}>
+                    <h3 style={styles.title} title={tournamentName}>Editar: {tournamentName}</h3>
+                    <button onClick={onClose} style={{ background: 'none', border: 'none', cursor: 'pointer' }}><CloseIcon color={theme.colors.primaryText} /></button>
+                </div>
+                <div style={styles.content} className="subtle-scrollbar">
+                    <div style={styles.fieldGroup}>
+                        <label style={styles.label}>Nombre del Torneo</label>
+                        <input type="text" value={name} onChange={e => setName(e.target.value)} style={styles.input} placeholder="Nombre del Torneo" />
+                    </div>
+                    <div style={styles.fieldGroup}>
+                        <label style={styles.label}>Duración del partido (minutos)</label>
+                        <input type="number" value={duration} onChange={e => setDuration(e.target.value)} style={styles.input} placeholder="Ej: 90" />
+                    </div>
+                    <div style={styles.fieldGroup}>
+                        <label style={styles.label}>Jugadores por lado</label>
+                        <input type="number" value={players} onChange={e => setPlayers(e.target.value)} style={styles.input} placeholder="Ej: 11" />
+                    </div>
+                    <div style={{display: 'flex', gap: theme.spacing.medium}}>
+                        <div style={styles.fieldGroup}>
+                            <label style={styles.label}>Ícono (Emoji)</label>
+                            <input type="text" value={icon} onChange={e => setIcon(e.target.value)} style={styles.input} placeholder="🏆" />
+                        </div>
+                        <div style={styles.fieldGroup}>
+                            <label style={styles.label}>Color (Hex)</label>
+                            <input type="color" value={color} onChange={e => setColor(e.target.value)} style={{...styles.input, height: '48px', padding: '0.25rem'}} />
+                        </div>
+                    </div>
+                    <button onClick={handleSave} style={styles.button}>Guardar Cambios</button>
+                </div>
+            </div>
+        </div>
+    );
+};
+
 const SettingsPage: React.FC = () => {
   const { theme } = useTheme();
   const { 
       matches, aiInteractions,
-      setMatches, setAiInteractions, 
+      importFromFile,
       setCurrentPage,
       mainTeamName, setMainTeamName,
-      teamProfiles, updateTeamProfile
+      teamProfiles, updateTeamProfile,
+      tournamentSettings, updateTournamentSettings,
+      deleteTournament,
+      myTeams,
+      isSyncing,
+      deleteTeam,
+      resetAccount
   } = useData();
+  const { currentUser, logout } = useAuth();
   const fileInputRef = useRef<HTMLInputElement>(null);
   const csvInputRef = useRef<HTMLInputElement>(null);
   const [copyStatus, setCopyStatus] = useState('Generar enlace para compartir');
   const [inviteStatus, setInviteStatus] = useState('Copiar enlace de invitación');
   const [editingTeam, setEditingTeam] = useState<string | null>(null);
+  const [editingTournament, setEditingTournament] = useState<string | null>(null);
+  const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 992);
 
-  const myTeams = useMemo(() => {
-    const teams = new Set<string>();
-    matches.forEach(m => {
-        if (m.teamName) teams.add(m.teamName);
+  useEffect(() => {
+    const handleResize = () => setIsDesktop(window.innerWidth >= 992);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
+
+  const allTournaments = useMemo(() => {
+    const tournaments = new Set<string>();
+    matches.forEach(match => {
+        if (match.tournament && match.tournament.trim()) {
+            tournaments.add(match.tournament.trim());
+        }
     });
-    return Array.from(teams).sort();
+    return Array.from(tournaments).sort();
   }, [matches]);
 
   const handleExportJSON = () => {
-    const dataToExport = { matches, aiInteractions, teamProfiles, mainTeamName };
+    const dataToExport = { matches, aiInteractions, teamProfiles, mainTeamName, tournamentSettings };
     const blob = new Blob([JSON.stringify(dataToExport, null, 2)], { type: 'application/json' });
     const url = URL.createObjectURL(blob);
     const a = document.createElement('a');
@@ -104,24 +200,59 @@ const SettingsPage: React.FC = () => {
   };
   
   const matchesToCsv = () => {
-    const header = ['match_id', 'date', 'tournament', 'my_team', 'opponent_team', 'my_team_score', 'opponent_team_score', 'result', 'player_name', 'goals', 'assists', 'minutes_played', 'status'];
-    const rows = matches.flatMap(match => 
-        match.players.map(player => [
+    const header = [
+      'match_id', 'date', 'tournament', 'notes', 'my_team', 'opponent_team', 
+      'my_team_score', 'opponent_team_score', 'result', 
+      'player_team', 'player_name', 'goals', 'assists', 'minutes_played', 'status', 'card'
+    ];
+
+    const rows = matches.flatMap(match => {
+        const matchData = [
             match.id,
             match.date,
             match.tournament || '',
+            match.notes || '',
             match.teamName,
             match.opponentName,
             match.teamScore,
             match.opponentScore,
             match.result,
-            player.name,
-            player.goals,
-            player.assists,
-            player.minutesPlayed || 0,
-            player.status
-        ].map(val => `"${String(val).replace(/"/g, '""')}"`).join(','))
-    );
+        ];
+
+        const myTeamPlayers = match.players.map(player => {
+            const row = [
+                ...matchData,
+                'my_team',
+                player.name,
+                player.goals,
+                player.assists,
+                player.minutesPlayed || 0,
+                player.status,
+                player.card || ''
+            ];
+            return row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(',');
+        });
+        
+        const opponentPlayers = (match.opponentPlayers || []).map(player => {
+            const row = [
+                ...matchData,
+                'opponent',
+                player.name,
+                player.goals,
+                player.assists,
+                player.minutesPlayed || 0,
+                player.status,
+                player.card || ''
+            ];
+            return row.map(val => `"${String(val).replace(/"/g, '""')}"`).join(',');
+        });
+        
+        if (myTeamPlayers.length === 0 && opponentPlayers.length === 0) {
+            return [matchData.map(val => `"${String(val).replace(/"/g, '""')}"`).join(',')];
+        }
+
+        return [...myTeamPlayers, ...opponentPlayers];
+    });
     return [header.join(','), ...rows].join('\n');
   };
 
@@ -146,41 +277,99 @@ const SettingsPage: React.FC = () => {
     if (!file) return;
 
     const reader = new FileReader();
-    reader.onload = (e) => {
+    reader.onload = async (e) => {
       try {
         const text = e.target?.result as string;
-        if (window.confirm("¡ADVERTENCIA! Esto reemplazará todos los datos de partidos existentes. ¿Estás seguro?")) {
+        if (window.confirm("¡ADVERTENCIA! Esto reemplazará los datos existentes. ¿Estás seguro?")) {
             if (type === 'json') {
                 const importedData = JSON.parse(text);
-                setMatches(importedData.matches || []);
-                if(importedData.aiInteractions) setAiInteractions(importedData.aiInteractions);
+                await importFromFile(importedData);
             } else { // CSV
                 const lines = text.split(/\r?\n/);
-                const header = lines[0].split(',').map(h => h.replace(/"/g, ''));
+                
+                const parseCsvLine = (line: string): string[] => {
+                    const result: string[] = [];
+                    let currentField = '';
+                    let inQuotes = false;
+                    for (let i = 0; i < line.length; i++) {
+                        const char = line[i];
+                        if (char === '"') {
+                            if (inQuotes && i + 1 < line.length && line[i+1] === '"') {
+                                currentField += '"';
+                                i++;
+                            } else {
+                                inQuotes = !inQuotes;
+                            }
+                        } else if (char === ',' && !inQuotes) {
+                            result.push(currentField);
+                            currentField = '';
+                        } else {
+                            currentField += char;
+                        }
+                    }
+                    result.push(currentField);
+                    return result;
+                }
+
+                const header = parseCsvLine(lines[0]);
                 const matchMap: Record<string, any> = {};
 
                 for (let i = 1; i < lines.length; i++) {
                     if (!lines[i]) continue;
-                    const data = lines[i].split(',').map(d => d.replace(/"/g, ''));
+                    const data = parseCsvLine(lines[i]);
+                    if (data.length !== header.length) continue;
+
                     const row: any = {};
                     header.forEach((h, index) => row[h] = data[index]);
                     
                     if (!matchMap[row.match_id]) {
                         matchMap[row.match_id] = {
-                            id: row.match_id, date: row.date, tournament: row.tournament,
-                            teamName: row.my_team, opponentName: row.opponent_team,
-                            teamScore: parseInt(row.my_team_score), opponentScore: parseInt(row.opponent_team_score),
-                            result: row.result, players: []
+                            id: row.match_id,
+                            date: row.date,
+                            tournament: row.tournament,
+                            notes: row.notes,
+                            teamName: row.my_team,
+                            opponentName: row.opponent_team,
+                            teamScore: parseInt(row.my_team_score, 10) || 0,
+                            opponentScore: parseInt(row.opponent_team_score, 10) || 0,
+                            players: [],
+                            opponentPlayers: [],
                         };
                     }
-                    matchMap[row.match_id].players.push({
-                        name: row.player_name, goals: parseInt(row.goals), assists: parseInt(row.assists),
-                        minutesPlayed: parseInt(row.minutes_played), status: row.status,
-                    });
+                    
+                    if (row.player_name) {
+                        const player: PlayerPerformance = {
+                            name: row.player_name,
+                            goals: parseInt(row.goals, 10) || 0,
+                            assists: parseInt(row.assists, 10) || 0,
+                            minutesPlayed: parseInt(row.minutes_played, 10) || 0,
+                            status: row.status as 'starter' | 'substitute' | 'goalkeeper',
+                            card: row.card ? row.card as PlayerPerformance['card'] : undefined,
+                        };
+
+                        if (row.player_team === 'my_team') {
+                            matchMap[row.match_id].players.push(player);
+                        } else if (row.player_team === 'opponent') {
+                            matchMap[row.match_id].opponentPlayers.push(player);
+                        }
+                    }
                 }
                 
-                const importedMatches = Object.values(matchMap);
-                setMatches(importedMatches as any);
+                const importedMatches = Object.values(matchMap).map((match: any) => {
+                    const myGoals = match.players.reduce((sum: number, p: PlayerPerformance) => sum + p.goals, 0);
+                    const myAssists = match.players.reduce((sum: number, p: PlayerPerformance) => sum + p.assists, 0);
+                    const goalDifference = match.teamScore - match.opponentScore;
+                    const result = match.teamScore > match.opponentScore ? 'VICTORIA' : match.teamScore < match.opponentScore ? 'DERROTA' : 'EMPATE';
+
+                    return {
+                        ...match,
+                        myGoals,
+                        myAssists,
+                        goalDifference,
+                        result,
+                    };
+                });
+                await importFromFile({ matches: importedMatches });
             }
             alert("¡Datos importados con éxito!");
             setCurrentPage('recorder');
@@ -198,7 +387,7 @@ const SettingsPage: React.FC = () => {
   const handleCopyShareableLink = async () => {
     setCopyStatus('Generando...');
     try {
-      const allData = { matches, aiInteractions, teamProfiles, mainTeamName };
+      const allData = { matches, aiInteractions, teamProfiles, mainTeamName, tournamentSettings };
       const jsonString = JSON.stringify(allData);
       const compressed = pako.deflate(jsonString);
       const base64Data = uint8ArrayToBase64(compressed);
@@ -247,20 +436,8 @@ const SettingsPage: React.FC = () => {
   };
 
   const handleResetData = () => {
-    if (window.confirm("¿ESTÁS SEGURO? Esta acción borrará TODOS tus datos (partidos, interacciones IA, etc.) de forma permanente y no se puede deshacer.")) {
-        setMatches([]);
-        setAiInteractions([]);
-        window.localStorage.removeItem('myTeamStats-matches');
-        window.localStorage.removeItem('myTeamStats-aiInteractions');
-        window.localStorage.removeItem('myTeamStats-goals');
-        window.localStorage.removeItem('myTeamStats-customAchievements');
-        window.localStorage.removeItem('myTeamStats-mainPlayer');
-        window.localStorage.removeItem('myTeamStats-tournamentStyles');
-        window.localStorage.removeItem('myTeamStats-playerProfiles');
-        window.localStorage.removeItem('myTeamStats-onboardingComplete');
-        window.localStorage.removeItem('myTeamStats-mainTeamName');
-        window.localStorage.removeItem('myTeamStats-teamProfiles');
-        window.location.reload();
+    if (window.confirm("¿ESTÁS SEGURO? Esta acción borrará TODOS tus datos (equipos, partidos, ajustes) de forma permanente y reiniciará tu cuenta desde cero. No se puede deshacer.")) {
+        resetAccount();
     }
   };
   
@@ -269,11 +446,44 @@ const SettingsPage: React.FC = () => {
     setEditingTeam(null);
   };
 
+  const handleToggleHideTeam = (teamName: string) => {
+      const isHidden = teamProfiles[teamName]?.isHidden;
+      updateTeamProfile(teamName, teamName, { isHidden: !isHidden });
+  };
+  
+  const handleDeleteTeam = (teamName: string) => {
+      if (window.confirm(`¿Estás seguro de que quieres eliminar el equipo "${teamName}"? Esta acción borrará PERMANENTEMENTE el perfil del equipo y TODOS sus partidos asociados.`)) {
+          deleteTeam(teamName);
+      }
+  };
+  
+  const handleSaveTournament = (originalName: string, newName: string, settings: Partial<TournamentSettings>) => {
+    updateTournamentSettings(originalName, newName, settings);
+    setEditingTournament(null);
+  };
+  
+  const handleDeleteTournament = (tournamentName: string) => {
+    if (window.confirm(`¿Estás seguro de que quieres eliminar el torneo "${tournamentName}"? Se desvinculará de todos los partidos, pero los partidos no se borrarán.`)) {
+        deleteTournament(tournamentName);
+    }
+  };
+
   const styles: { [key: string]: React.CSSProperties } = {
-    container: { maxWidth: '800px', margin: '0 auto', padding: `${theme.spacing.extraLarge} ${theme.spacing.medium}`, display: 'flex', flexDirection: 'column', gap: theme.spacing.large },
+    container: { maxWidth: '1200px', margin: '0 auto', padding: `${theme.spacing.extraLarge} ${theme.spacing.medium}`, display: 'flex', flexDirection: 'column', gap: theme.spacing.large },
     pageTitle: {
       fontSize: theme.typography.fontSize.extraLarge, fontWeight: 700, color: theme.colors.primaryText,
       margin: 0, borderLeft: `4px solid ${theme.colors.accent2}`, paddingLeft: theme.spacing.medium,
+    },
+    desktopGrid: {
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: theme.spacing.extraLarge,
+        alignItems: 'start',
+    },
+    column: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: theme.spacing.large,
     },
     cardContent: { display: 'flex', flexDirection: 'column', gap: theme.spacing.medium },
     description: { color: theme.colors.secondaryText, fontSize: theme.typography.fontSize.small, lineHeight: 1.6, margin: `0 0 ${theme.spacing.small} 0` },
@@ -286,54 +496,124 @@ const SettingsPage: React.FC = () => {
       background: theme.colors.surface,
       color: theme.colors.primaryText,
     },
+    primaryButton: {
+        backgroundColor: theme.colors.accent1,
+        color: theme.colors.textOnAccent,
+        border: 'none',
+    },
     resetButton: { backgroundColor: `${theme.colors.loss}e0`, color: theme.colors.textOnAccent, border: 'none' },
-    teamList: { display: 'flex', flexDirection: 'column', gap: theme.spacing.small },
-    teamItem: { display: 'flex', alignItems: 'center', gap: theme.spacing.medium, padding: theme.spacing.small, borderRadius: theme.borderRadius.medium, backgroundColor: theme.colors.background },
-    teamShield: { width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover', backgroundColor: theme.colors.border },
-    teamName: { flex: 1, fontWeight: 600 },
+    itemList: { display: 'flex', flexDirection: 'column', gap: theme.spacing.small },
+    item: { display: 'flex', alignItems: 'center', gap: theme.spacing.medium, padding: theme.spacing.small, borderRadius: theme.borderRadius.medium, backgroundColor: theme.colors.background },
+    itemIcon: { width: '40px', height: '40px', borderRadius: '50%', objectFit: 'cover', backgroundColor: theme.colors.border, display: 'flex', alignItems: 'center', justifyContent: 'center' },
+    itemName: { flex: 1, fontWeight: 600 },
     iconButton: { background: 'none', border: 'none', cursor: 'pointer', color: theme.colors.secondaryText },
     dataButtonsGrid: { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: theme.spacing.medium },
+    accountInfo: { display: 'flex', alignItems: 'center', gap: theme.spacing.medium, padding: theme.spacing.medium, backgroundColor: theme.colors.background, borderRadius: theme.borderRadius.medium },
+    accountEmail: { fontWeight: 600, color: theme.colors.primaryText, fontSize: '0.9rem' },
   };
+  
+  const accountSection = (
+    <SettingsSection title={<><UserIcon /> Cuenta y Sincronización</>} defaultOpen={!currentUser}>
+        <div style={styles.cardContent}>
+            {!currentUser ? (
+                <>
+                    <p style={styles.description}>
+                        Actualmente estás usando el modo invitado. Sincroniza tus datos en la nube para no perderlos y acceder desde cualquier dispositivo.
+                        Los datos actuales se transferirán a tu cuenta.
+                    </p>
+                    <button onClick={() => setCurrentPage('login')} style={{...styles.button, ...styles.primaryButton}}>
+                        Iniciar Sesión / Registrarse
+                    </button>
+                </>
+            ) : (
+                <>
+                    <div style={styles.accountInfo}>
+                        <div style={styles.itemIcon}><UserIcon /></div>
+                        <div>
+                            <div style={styles.description}>Sesión iniciada como:</div>
+                            <div style={styles.accountEmail}>{currentUser.email}</div>
+                        </div>
+                    </div>
+                    <button onClick={logout} style={{...styles.button, color: theme.colors.loss, borderColor: `${theme.colors.loss}40`}}>
+                        <LogoutIcon /> Cerrar Sesión
+                    </button>
+                </>
+            )}
+        </div>
+    </SettingsSection>
+  );
 
-  return (
-    <main style={styles.container}>
-      {editingTeam && (
-          <TeamEditModal 
-              teamName={editingTeam}
-              initialShieldUrl={teamProfiles[editingTeam]?.shieldUrl || ''}
-              onClose={() => setEditingTeam(null)}
-              onSave={(newName, shieldUrl) => handleSaveTeam(editingTeam, newName, shieldUrl)}
-          />
-      )}
-      <h2 style={styles.pageTitle}>Ajustes</h2>
-      
+  const teamsSection = (
       <SettingsSection title={<><TeamIcon /> Mis Equipos</>} defaultOpen={true}>
           <div style={styles.cardContent}>
               <p style={styles.description}>
-                  Gestiona tus equipos. Haz clic en la estrella ★ para seleccionar tu equipo principal.
+                  Gestiona tus equipos. Haz clic en la estrella ★ para seleccionar tu equipo principal, o en el ojo para ocultar equipos antiguos.
               </p>
-              <div style={styles.teamList}>
-                  {myTeams.map(team => (
-                      <div key={team} style={styles.teamItem}>
-                          <button onClick={() => setMainTeamName(team)} style={styles.iconButton} aria-label={`Marcar ${team} como principal`}>
+              <div style={styles.itemList}>
+                  {myTeams.map(team => {
+                      const isHidden = teamProfiles[team]?.isHidden;
+                      return (
+                      <div key={team} style={{...styles.item, opacity: isHidden ? 0.5 : 1}}>
+                          <button onClick={() => setMainTeamName(team)} style={styles.iconButton} aria-label={`Marcar ${team} como principal`} disabled={isHidden}>
                               <StarIcon color={team === mainTeamName ? theme.colors.accent3 : theme.colors.secondaryText} isFilled={team === mainTeamName}/>
                           </button>
                           {teamProfiles[team]?.shieldUrl ? (
-                              <img src={teamProfiles[team]?.shieldUrl} alt={`Escudo de ${team}`} style={styles.teamShield} />
+                              <img src={teamProfiles[team]?.shieldUrl} alt={`Escudo de ${team}`} style={styles.itemIcon} />
                           ) : (
-                              <div style={{...styles.teamShield, display: 'flex', alignItems: 'center', justifyContent: 'center'}}><TeamIcon /></div>
+                              <div style={styles.itemIcon}><TeamIcon /></div>
                           )}
-                          <span style={styles.teamName}>{team}</span>
-                          <button onClick={() => setEditingTeam(team)} style={styles.iconButton} aria-label={`Editar ${team}`}>
-                              <PencilIcon color={theme.colors.secondaryText} />
-                          </button>
+                          <span style={styles.itemName}>{team}</span>
+                          <div style={{display: 'flex', gap: theme.spacing.small}}>
+                            <button onClick={() => handleToggleHideTeam(team)} style={styles.iconButton} aria-label={isHidden ? `Mostrar ${team}` : `Ocultar ${team}`}>
+                                {isHidden ? <EyeSlashIcon color={theme.colors.primaryText} /> : <EyeIcon color={theme.colors.secondaryText} />}
+                            </button>
+                            <button onClick={() => setEditingTeam(team)} style={styles.iconButton} aria-label={`Editar ${team}`}>
+                                <PencilIcon color={theme.colors.secondaryText} />
+                            </button>
+                            <button onClick={() => handleDeleteTeam(team)} style={{...styles.iconButton, color: theme.colors.loss}} aria-label={`Eliminar ${team}`}>
+                                <TrashIcon />
+                            </button>
+                          </div>
                       </div>
-                  ))}
+                  )})}
               </div>
           </div>
       </SettingsSection>
-      
-      <SettingsSection title={<><UserPlusIcon /> Invitar a Amigos</>}>
+  );
+
+  const tournamentsSection = (
+    <SettingsSection title={<><TrophyIcon /> Mis Torneos</>}>
+        <div style={styles.cardContent}>
+            <p style={styles.description}>
+                Personaliza la configuración de cada torneo, como la duración de los partidos o el número de jugadores.
+            </p>
+            <div style={styles.itemList}>
+                {allTournaments.map(tournament => {
+                    const settings = tournamentSettings[tournament];
+                    return (
+                        <div key={tournament} style={styles.item}>
+                             <div style={{...styles.itemIcon, backgroundColor: settings?.color || theme.colors.border, color: theme.colors.textOnAccent, fontSize: '1.5rem'}}>
+                                {settings?.icon || '🏆'}
+                            </div>
+                            <span style={styles.itemName}>{tournament}</span>
+                            <div style={{display: 'flex', gap: theme.spacing.small}}>
+                                <button onClick={() => setEditingTournament(tournament)} style={styles.iconButton} aria-label={`Editar ${tournament}`}>
+                                    <PencilIcon color={theme.colors.secondaryText} />
+                                </button>
+                                <button onClick={() => handleDeleteTournament(tournament)} style={{...styles.iconButton, color: theme.colors.loss}} aria-label={`Eliminar ${tournament}`}>
+                                    <TrashIcon />
+                                </button>
+                            </div>
+                        </div>
+                    );
+                })}
+            </div>
+        </div>
+    </SettingsSection>
+  );
+
+  const inviteSection = (
+    <SettingsSection title={<><UserPlusIcon /> Invitar a Amigos</>}>
         <div style={styles.cardContent}>
             <p style={styles.description}>
                 Comparte esta aplicación con tus amigos para que puedan gestionar sus propios equipos.
@@ -342,9 +622,11 @@ const SettingsPage: React.FC = () => {
                 <ShareIcon /> {inviteStatus}
             </button>
         </div>
-      </SettingsSection>
+    </SettingsSection>
+  );
 
-      <SettingsSection title={<><ShareIcon /> Gestión de Datos</>}>
+  const dataSection = (
+    <SettingsSection title={<><ShareIcon /> Gestión de Datos</>}>
         <div style={styles.cardContent}>
             <p style={styles.description}>
                 Genera un enlace para compartir una vista de solo lectura de tus datos.
@@ -358,30 +640,85 @@ const SettingsPage: React.FC = () => {
             </p>
             <div style={styles.dataButtonsGrid}>
                 <button onClick={() => handleExportJSON()} style={styles.button}>Exportar JSON</button>
-                <button onClick={() => handleImportClick('json')} style={styles.button}>Importar JSON</button>
+                <button onClick={() => handleImportClick('json')} style={styles.button} disabled={isSyncing}>{isSyncing ? 'Importando...' : 'Importar JSON'}</button>
                 <button onClick={handleExportCSV} style={styles.button}>Exportar CSV</button>
-                <button onClick={() => handleImportClick('csv')} style={styles.button}>Importar CSV</button>
+                <button onClick={() => handleImportClick('csv')} style={styles.button} disabled={isSyncing}>{isSyncing ? 'Importando...' : 'Importar CSV'}</button>
             </div>
             <input type="file" ref={fileInputRef} onChange={(e) => handleFileChange(e, 'json')} accept=".json" style={{ display: 'none' }} />
             <input type="file" ref={csvInputRef} onChange={(e) => handleFileChange(e, 'csv')} accept=".csv" style={{ display: 'none' }} />
         </div>
-      </SettingsSection>
+    </SettingsSection>
+  );
 
-       <SettingsSection title={<><AlertTriangleIcon color={theme.colors.loss} /> Zona de Peligro</>}>
+  const dangerZoneSection = (
+    <SettingsSection title={<><AlertTriangleIcon color={theme.colors.loss} /> Zona de Peligro</>}>
         <div style={styles.cardContent}>
             <p style={styles.description}>
                 Borra todos los datos de la aplicación y comienza desde cero. Esta acción no se puede deshacer.
             </p>
-            <button onClick={handleResetData} style={{...styles.button, ...styles.resetButton}}>
-                Restablecer todos los datos
+            <button onClick={handleResetData} style={{...styles.button, ...styles.resetButton}} disabled={isSyncing}>
+                {isSyncing ? 'Procesando...' : 'Restablecer todos los datos'}
             </button>
         </div>
-      </SettingsSection>
+    </SettingsSection>
+  );
 
-      <div style={{ textAlign: 'center', color: theme.colors.secondaryText, fontSize: theme.typography.fontSize.small, marginTop: theme.spacing.large }}>
-        Versión 2.1.0
-      </div>
-    </main>
+  return (
+    <>
+      <style>{`
+          .subtle-scrollbar::-webkit-scrollbar { width: 6px; }
+          .subtle-scrollbar::-webkit-scrollbar-track { background: transparent; }
+          .subtle-scrollbar::-webkit-scrollbar-thumb { background-color: ${theme.colors.border}; border-radius: 10px; }
+          .subtle-scrollbar { scrollbar-width: thin; scrollbar-color: ${theme.colors.border} transparent; }
+      `}</style>
+      <main style={styles.container}>
+        {editingTeam && (
+            <TeamEditModal 
+                teamName={editingTeam}
+                initialShieldUrl={teamProfiles[editingTeam]?.shieldUrl || ''}
+                onClose={() => setEditingTeam(null)}
+                onSave={(newName, shieldUrl) => handleSaveTeam(editingTeam, newName, shieldUrl)}
+            />
+        )}
+        {editingTournament && (
+            <TournamentEditModal 
+                tournamentName={editingTournament}
+                initialSettings={tournamentSettings[editingTournament]}
+                onClose={() => setEditingTournament(null)}
+                onSave={(newName, settings) => handleSaveTournament(editingTournament, newName, settings)}
+            />
+        )}
+        <h2 style={styles.pageTitle}>Ajustes</h2>
+        
+        {isDesktop ? (
+          <div style={styles.desktopGrid}>
+              <div style={styles.column}>
+                  {accountSection}
+                  {teamsSection}
+                  {tournamentsSection}
+              </div>
+              <div style={styles.column}>
+                  {dataSection}
+                  {inviteSection}
+                  {dangerZoneSection}
+              </div>
+          </div>
+        ) : (
+          <>
+              {accountSection}
+              {teamsSection}
+              {tournamentsSection}
+              {inviteSection}
+              {dataSection}
+              {dangerZoneSection}
+          </>
+        )}
+
+        <div style={{ textAlign: 'center', color: theme.colors.secondaryText, fontSize: theme.typography.fontSize.small, marginTop: theme.spacing.large }}>
+          Versión 2.2.0
+        </div>
+      </main>
+    </>
   );
 };
 

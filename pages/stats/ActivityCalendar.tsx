@@ -13,7 +13,7 @@ type CalendarView = 'heatmap' | 'summary' | 'log';
 
 const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ matches }) => {
   const { theme } = useTheme();
-  const { tournamentStyles } = useData();
+  const { tournamentSettings } = useData();
   
   const years = useMemo(() => {
     const yearSet = new Set(matches.map(m => new Date(m.date).getFullYear()));
@@ -262,7 +262,7 @@ const ActivityCalendar: React.FC<ActivityCalendarProps> = ({ matches }) => {
         <div key={month} style={styles.monthGroup}>
           <h4 style={styles.monthHeader}>{month}</h4>
           {monthMatches.reverse().map((match, index) => {
-            const tournamentStyle = match.tournament ? tournamentStyles[match.tournament] : null;
+            const tournamentStyle = match.tournament ? tournamentSettings[match.tournament] : null;
             return (
               <div key={match.id} style={ index === monthMatches.length - 1 ? {...styles.matchRow, ...styles.lastMatchRow} : styles.matchRow}>
                   <div style={styles.matchInfo}>

@@ -25,7 +25,7 @@ const monthOrder = [
 
 const HistoricalAnalysis: React.FC<HistoricalAnalysisProps> = ({ matches }) => {
   const { theme } = useTheme();
-  const { tournamentStyles, setViewingPlayerName } = useData();
+  const { tournamentSettings, setViewingPlayerName } = useData();
 
   const statsByYearAndMonth = React.useMemo(() => {
     const data: Record<string, Record<string, MonthlyStats>> = {};
@@ -258,7 +258,7 @@ const HistoricalAnalysis: React.FC<HistoricalAnalysisProps> = ({ matches }) => {
                           {isExpanded && stats.matches.length > 0 && (
                               <div style={styles.matchListContainer} className="fade-in-down">
                                   {stats.matches.map((match, index) => {
-                                      const tournamentStyle = match.tournament ? tournamentStyles[match.tournament] : null;
+                                      const tournamentStyle = match.tournament ? tournamentSettings[match.tournament] : null;
                                       const isMatchExpanded = expandedMatchId === match.id;
 
                                       return (

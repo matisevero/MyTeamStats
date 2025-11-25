@@ -3,98 +3,89 @@ import { MoraleLevel } from '../types';
 import { calculateTeamMorale } from '../utils/analytics';
 
 export const achievementsList: Achievement[] = [
-  // === Goals ===
+  // === Team Defense ===
   {
-    id: 'goleador',
-    title: 'Goleador',
-    description: 'Alcanza diferentes hitos de goles marcados a lo largo de tu carrera.',
-    progress: (matches) => matches.reduce((sum, m) => sum + m.myGoals, 0),
+    id: 'iron_curtain',
+    title: 'Muralla Defensiva',
+    description: 'Acumula partidos manteniendo el arco en cero (Valla Invicta).',
+    progress: (matches) => matches.filter(m => m.opponentScore === 0).length,
     tiers: [
-      { name: 'Bronce', target: 10, icon: '🥉' },
-      { name: 'Plata', target: 50, icon: '🥈' },
-      { name: 'Oro', target: 100, icon: '🥇' },
-      { name: 'Platino', target: 250, icon: '🏆' },
+      { name: 'Candado', target: 5, icon: '🔒' },
+      { name: 'Muralla', target: 15, icon: '🧱' },
+      { name: 'Fortaleza', target: 30, icon: '🏰' },
+      { name: 'Invencibles', target: 50, icon: '🛡️' },
     ],
   },
-  // === Assists ===
+  // === Team Offense ===
   {
-    id: 'playmaker',
-    title: 'Playmaker',
-    description: 'Conviértete en un maestro de las asistencias.',
-    progress: (matches) => matches.reduce((sum, m) => sum + m.myAssists, 0),
+    id: 'team_goals',
+    title: 'Poder de Fuego',
+    description: 'Suma goles a favor en la historia del equipo.',
+    progress: (matches) => matches.reduce((sum, m) => sum + m.teamScore, 0),
     tiers: [
-      { name: 'Bronce', target: 10, icon: '🥉' },
-      { name: 'Plata', target: 50, icon: '🥈' },
-      { name: 'Oro', target: 100, icon: '🥇' },
-      { name: 'Platino', target: 250, icon: '🏆' },
-    ],
-  },
-  // === Wins ===
-  {
-    id: 'victorias',
-    title: 'Ganador Nato',
-    description: 'Acumula victorias y forja una mentalidad ganadora.',
-    progress: (matches) => matches.filter(m => m.result === 'VICTORIA').length,
-    tiers: [
-      { name: 'Bronce', target: 5, icon: '🥉' },
-      { name: 'Plata', target: 25, icon: '🥈' },
-      { name: 'Oro', target: 50, icon: '🥇' },
-      { name: 'Platino', target: 100, icon: '🏆' },
+      { name: 'Amenaza', target: 50, icon: '💣' },
+      { name: 'Artillería', target: 100, icon: '💥' },
+      { name: 'Aplanadora', target: 250, icon: '🚜' },
+      { name: 'Legendarios', target: 500, icon: '🔥' },
     ],
   },
   // === Streaks ===
   {
     id: 'win_streak',
-    title: 'Imparable',
-    description: 'Consigue una racha de victorias consecutivas.',
+    title: 'Ola Ganadora',
+    description: 'Consigue la mayor racha de victorias consecutivas.',
     progress: (matches, records) => records.longestWinStreak.value,
     tiers: [
-      { name: 'Bronce', target: 3, icon: '🥉' },
-      { name: 'Plata', target: 5, icon: '🥈' },
-      { name: 'Oro', target: 10, icon: '🥇' },
+      { name: 'Racha', target: 3, icon: '🌊' },
+      { name: 'Imparables', target: 5, icon: '🚀' },
+      { name: 'Dinastía', target: 10, icon: '👑' },
     ],
   },
   {
     id: 'undefeated_streak',
-    title: 'Fortaleza',
-    description: 'Mantente invicto durante una racha de partidos.',
+    title: 'Duros de Matar',
+    description: 'Mantengan el invicto (sin perder) durante una serie de partidos.',
     progress: (matches, records) => records.longestUndefeatedStreak.value,
     tiers: [
-      { name: 'Bronce', target: 5, icon: '🥉' },
-      { name: 'Plata', target: 7, icon: '🥈' },
-      { name: 'Oro', target: 12, icon: '🥇' },
+      { name: 'Sólidos', target: 5, icon: '✊' },
+      { name: 'Rocosos', target: 10, icon: '🗿' },
+      { name: 'Eternos', target: 20, icon: '♾️' },
     ],
   },
-  // === Single Match Performance ===
+  // === Match Milestones ===
   {
-    id: 'hat_trick',
-    title: 'Hat-Trick Hero',
-    description: 'Marca 3 o más goles en un solo partido.',
-    progress: (matches, records) => records.bestGoalPerformance.value,
+    id: 'goal_fest',
+    title: 'Fiesta de Goles',
+    description: 'Marca una gran cantidad de goles en un solo partido.',
+    progress: (matches, records) => records.bestOffensivePerformance.value,
     tiers: [
-      { name: 'Hat-Trick', target: 3, icon: '⚽⚽⚽' },
+      { name: 'Mano', target: 5, icon: '🖐️' },
+      { name: 'Siete Bravo', target: 7, icon: '🎰' },
+      { name: 'Decena', target: 10, icon: '🔟' },
     ],
   },
   {
-    id: 'assist_masterclass',
-    title: 'Visión de Juego',
-    description: 'Da 3 o más asistencias en un solo partido.',
-    progress: (matches, records) => records.bestAssistPerformance.value,
+    id: 'big_win',
+    title: 'Paliza Táctica',
+    description: 'Gana un partido por una amplia diferencia de goles.',
+    progress: (matches, records) => records.biggestWin.value,
     tiers: [
-      { name: 'Playmaker', target: 3, icon: '👟👟👟' },
+      { name: 'Superioridad', target: 3, icon: '⚡' },
+      { name: 'Baile', target: 5, icon: '💃' },
+      { name: 'Histórico', target: 7, icon: '🏛️' },
     ],
   },
-  // === Secret Achievements ===
+  // === Spirit & Resilience ===
   {
     id: 'resilience',
-    title: 'Resiliencia',
-    description: 'Consigue una victoria justo después de tocar fondo con tu moral.',
+    title: 'Espíritu de Equipo',
+    description: 'Consigue una victoria justo después de tocar fondo anímicamente.',
     isSecret: true,
     progress: (matches) => {
       if (matches.length < 5) return 0;
       const sorted = [...matches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
       
-      // Check if the condition was ever met in the player's history
+      // Check if the condition was ever met in the team's history
       for (let i = 4; i < sorted.length; i++) {
         const currentMatch = sorted[i];
         if(currentMatch.result === 'VICTORIA') {
@@ -108,7 +99,7 @@ export const achievementsList: Achievement[] = [
       return 0;
     },
     tiers: [
-      { name: 'Desbloqueado', target: 1, icon: '💪' },
+      { name: 'Resiliencia', target: 1, icon: 'phoenix' }, // Using text as placeholder for specialized icon logic if needed, or just emoji
     ],
   },
 ];

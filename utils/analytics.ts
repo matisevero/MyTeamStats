@@ -77,13 +77,13 @@ export const evaluateCustomAchievement = (achievement: CustomAchievement, matche
              for (const match of recentMatches) { if (match.result !== 'VICTORIA') streak++; else break; }
             break;
         case 'goalStreak':
-             for (const match of recentMatches) { if (match.myGoals > 0) streak++; else break; }
+             for (const match of recentMatches) { if (match.teamScore > 0) streak++; else break; }
             break;
         case 'assistStreak':
              for (const match of recentMatches) { if (match.myAssists > 0) streak++; else break; }
             break;
         case 'goalDrought':
-             for (const match of recentMatches) { if (match.myGoals === 0) streak++; else break; }
+             for (const match of recentMatches) { if (match.teamScore === 0) streak++; else break; }
             break;
         case 'assistDrought':
              for (const match of recentMatches) { if (match.myAssists === 0) streak++; else break; }
@@ -128,6 +128,8 @@ export const calculateHistoricalRecords = (matches: Match[]): HistoricalRecords 
   // Single match records
   records.bestGoalPerformance.value = Math.max(0, ...sortedMatches.map(m => m.myGoals));
   records.bestAssistPerformance.value = Math.max(0, ...sortedMatches.map(m => m.myAssists));
+  
+  // Team records use teamScore, not myGoals (sum of players)
   records.bestOffensivePerformance.value = Math.max(0, ...sortedMatches.map(m => m.teamScore));
   records.bestDefensivePerformance.value = Math.min(...sortedMatches.map(m => m.opponentScore));
   records.biggestWin.value = Math.max(0, ...sortedMatches.filter(m => m.result === 'VICTORIA').map(m => m.goalDifference));
@@ -169,8 +171,8 @@ export const calculateHistoricalRecords = (matches: Match[]): HistoricalRecords 
       if (currentUndefeated > 0) streakData.undefeated.push(currentUndefeated); currentUndefeated = 0;
     }
     
-    // Performance streaks
-    if (match.myGoals > 0) {
+    // Performance streaks (Team based for goals)
+    if (match.teamScore > 0) {
       currentGoal++;
       if (currentGoalDrought > 0) streakData.goalDrought.push(currentGoalDrought); currentGoalDrought = 0;
     } else {
@@ -248,15 +250,14 @@ export const calculateTeamMorale = (matches: Match[]): PlayerMorale | null => {
       } else {
         matchScore -= 2;
       }
-      matchScore += match.myGoals * 1;
-      matchScore += match.myAssists * 0.5;
+      matchScore += match.teamScore * 0.5; // Changed from myGoals to teamScore for team morale
       matchScore += (match.goalDifference ?? 0) * 0.2;
       weightedScoreSum += matchScore * weight;
       weightSum += weight;
     });
     const averageWeightedScore = weightSum > 0 ? weightedScoreSum / weightSum : 0;
     const MIN_RAW_SCORE = -5;
-    const MAX_RAW_SCORE = 15;
+    const MAX_RAW_SCORE = 10; // Adjusted for team score scaling
     let finalScore = ((averageWeightedScore - MIN_RAW_SCORE) / (MAX_RAW_SCORE - MIN_RAW_SCORE)) * 100;
     return Math.max(0, Math.min(100, finalScore));
   };
@@ -300,7 +301,7 @@ export const calculateTeamMorale = (matches: Match[]): PlayerMorale | null => {
     if (match.result === 'VICTORIA') wins++;
     else if (match.result === 'EMPATE') draws++;
     else losses++;
-    goals += match.myGoals;
+    goals += match.teamScore; // Changed to teamScore
     assists += match.myAssists;
   });
 

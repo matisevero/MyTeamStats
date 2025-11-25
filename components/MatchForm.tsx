@@ -1,10 +1,13 @@
-import React, { useState, useEffect, useMemo } from 'react';
-import type { Match, PlayerPerformance } from '../types';
+
+import React, { useState, useEffect, useMemo, useCallback } from 'react';
+import type { Match, PlayerPerformance, Incident, TournamentSettings, PlayerProfileData } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { TeamIcon } from './icons/TeamIcon';
 import AutocompleteInput from './AutocompleteInput';
 import { ChevronIcon } from './icons/ChevronIcon';
 import { StarterStatusIcon } from './icons/StarterStatusIcon';
+import { CardIcon } from './icons/CardIcon';
+import { StatStepper } from './StatStepper';
 
 interface MatchFormProps {
   onAddMatch: (match: Omit<Match, 'id' | 'result' | 'myGoals' | 'myAssists' | 'goalDifference'>) => void;
@@ -13,22 +16,27 @@ interface MatchFormProps {
   matchToEdit: Match | null;
   allPlayers: string[];
   allTournaments: string[];
+  tournamentSettings: Record<string, TournamentSettings>;
+  playerProfiles: Record<string, PlayerProfileData>;
   allMyTeamNames: string[];
   allOpponentNames: string[];
 }
 
-const MatchForm: React.FC<MatchFormProps> = ({ onAddMatch, onUpdateMatch, onCancelEdit, matchToEdit, allPlayers, allTournaments, allMyTeamNames, allOpponentNames }) => {
+const MatchForm: React.FC<MatchFormProps> = ({ onAddMatch, onUpdateMatch, onCancelEdit, matchToEdit, allPlayers, allTournaments, tournamentSettings, playerProfiles, allMyTeamNames, allOpponentNames }) => {
   const { theme } = useTheme();
   const [teamName, setTeamName] = useState('Mi Equipo');
   const [opponentName, setOpponentName] = useState('Rival');
   const [teamScore, setTeamScore] = useState(0);
   const [opponentScore, setOpponentScore] = useState(0);
   const [date, setDate] = useState(new Date().toISOString().split('T')[0]);
+  const [tournament, setTournament] = useState('');
   const [notes, setNotes] = useState('');
   const [showNotes, setShowNotes] = useState(false);
   const [isPressed, setIsPressed] = useState(false);
   const [players, setPlayers] = useState<PlayerPerformance[]>([]);
+  const [incidents, setIncidents] = useState<Omit<Incident, 'id'>[]>([]);
   const [isLineupsExpanded, setIsLineupsExpanded] = useState(false);
+  const [editingMinuteIndex, setEditingMinuteIndex] = useState<number | null>(null);
 
   const isEditMode = !!matchToEdit;
 
@@ -39,15 +47,54 @@ const MatchForm: React.FC<MatchFormProps> = ({ onAddMatch, onUpdateMatch, onCanc
       setTeamScore(matchToEdit.teamScore);
       setOpponentScore(matchToEdit.opponentScore);
       setDate(matchToEdit.date);
+      setTournament(matchToEdit.tournament || '');
       setNotes(matchToEdit.notes || '');
       setShowNotes(!!matchToEdit.notes);
       setPlayers(matchToEdit.players || []);
+      setIncidents(matchToEdit.incidents || []);
       setIsLineupsExpanded(!!(matchToEdit.players?.length || matchToEdit.teamName !== 'Mi Equipo'));
     } else {
         resetForm();
     }
   }, [matchToEdit]);
   
+  // Auto-calculate minutes based on substitutions
+  useEffect(() => {
+      if (incidents.length > 0) {
+          const matchDuration = (tournament && tournamentSettings[tournament]?.matchDuration) || 90;
+          
+          setPlayers(currentPlayers => {
+              let updatedPlayers = [...currentPlayers];
+              let changed = false;
+
+              incidents.forEach(inc => {
+                  if (inc.type === 'substitution' && inc.playerName && inc.playerIn && inc.minute) {
+                      // Find Player OUT
+                      const playerOutIndex = updatedPlayers.findIndex(p => p.name.trim().toLowerCase() === inc.playerName.trim().toLowerCase());
+                      if (playerOutIndex !== -1) {
+                          if (updatedPlayers[playerOutIndex].minutesPlayed !== inc.minute) {
+                            updatedPlayers[playerOutIndex] = { ...updatedPlayers[playerOutIndex], minutesPlayed: inc.minute };
+                            changed = true;
+                          }
+                      }
+
+                      // Find Player IN
+                      const playerInIndex = updatedPlayers.findIndex(p => p.name.trim().toLowerCase() === inc.playerIn?.trim().toLowerCase());
+                      if (playerInIndex !== -1) {
+                           const minutesIn = Math.max(0, matchDuration - inc.minute);
+                           if (updatedPlayers[playerInIndex].minutesPlayed !== minutesIn) {
+                                updatedPlayers[playerInIndex] = { ...updatedPlayers[playerInIndex], minutesPlayed: minutesIn };
+                                changed = true;
+                           }
+                      }
+                  }
+              });
+              
+              return changed ? updatedPlayers : currentPlayers;
+          });
+      }
+  }, [incidents, tournament, tournamentSettings]);
+
   const resetForm = () => {
     setTeamName('Mi Equipo');
     setOpponentName('Rival');
@@ -55,15 +102,19 @@ const MatchForm: React.FC<MatchFormProps> = ({ onAddMatch, onUpdateMatch, onCanc
     setOpponentScore(0);
     setNotes('');
     setDate(new Date().toISOString().split('T')[0]);
+    setTournament('');
     setShowNotes(false);
     setPlayers([]);
+    setIncidents([]);
     setIsLineupsExpanded(false);
+    setEditingMinuteIndex(null);
   };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     
     const finalPlayers = players.map(p => ({ ...p, name: p.name.trim() })).filter(p => p.name);
+    const finalIncidents = incidents.map(i => ({ ...i, playerName: i.playerName.trim(), playerIn: i.playerIn?.trim() })).filter(i => i.playerName);
 
     const matchData = {
       teamName,
@@ -71,9 +122,10 @@ const MatchForm: React.FC<MatchFormProps> = ({ onAddMatch, onUpdateMatch, onCanc
       teamScore,
       opponentScore,
       date,
-      tournament: isEditMode ? matchToEdit.tournament : '',
+      tournament,
       notes,
       players: finalPlayers,
+      incidents: finalIncidents.map(i => ({...i, id: Date.now().toString() + Math.random() })),
     };
 
     if (isEditMode && matchToEdit) {
@@ -148,15 +200,65 @@ const MatchForm: React.FC<MatchFormProps> = ({ onAddMatch, onUpdateMatch, onCanc
         return newPlayers;
     });
   };
+  
+  const handleTogglePlayerCard = (index: number) => {
+    setPlayers(currentPlayers => {
+        const newPlayers = [...currentPlayers];
+        const currentCard = newPlayers[index].card;
+        let newCard: PlayerPerformance['card'];
+        
+        switch (currentCard) {
+            case undefined: newCard = 'yellow'; break;
+            case 'yellow': newCard = 'double_yellow'; break;
+            case 'double_yellow': newCard = 'red'; break;
+            case 'red': newCard = 'blue'; break;
+            case 'blue': newCard = undefined; break;
+            default: newCard = undefined;
+        }
+        
+        newPlayers[index] = { ...newPlayers[index], card: newCard };
+        return newPlayers;
+    });
+  };
 
   const handleAddPlayerInput = () => {
-    setPlayers(currentPlayers => [...currentPlayers, { name: '', goals: 0, assists: 0, minutesPlayed: 90, status: 'starter' }]);
+    const selectedTournamentSettings = tournament ? tournamentSettings[tournament] : undefined;
+    const playersPerSide = selectedTournamentSettings?.playersPerSide;
+    
+    let newStatus: PlayerPerformance['status'] = 'starter';
+    if (playersPerSide && players.length >= playersPerSide) {
+        newStatus = 'substitute';
+    }
+
+    const newMinutes = selectedTournamentSettings?.matchDuration ?? 90;
+
+    setPlayers(currentPlayers => [...currentPlayers, { name: '', goals: 0, assists: 0, minutesPlayed: newMinutes, status: newStatus }]);
   };
 
   const handleRemovePlayerInput = (index: number) => {
     setPlayers(currentPlayers => currentPlayers.filter((_, i) => i !== index));
   }
   
+  const handleAddIncident = () => {
+    setIncidents(prev => [...prev, { type: 'substitution', playerName: '', playerIn: '', minute: 0 }]);
+  };
+
+  const handleRemoveIncident = (index: number) => {
+    setIncidents(prev => prev.filter((_, i) => i !== index));
+  };
+  
+  const handleIncidentChange = (index: number, field: 'type' | 'playerName' | 'playerIn' | 'minute', value: string | number) => {
+    setIncidents(prev => {
+        const newIncidents = [...prev];
+        newIncidents[index] = { ...newIncidents[index], [field]: value };
+        return newIncidents;
+    });
+  };
+
+  const usedPlayerNames = useMemo(() => {
+      return new Set(players.map(p => p.name.trim().toLowerCase()).filter(n => n));
+  }, [players]);
+
   const styles: { [key: string]: React.CSSProperties } = {
     form: { display: 'flex', flexDirection: 'column', gap: theme.spacing.large },
     twoFieldsContainer: { display: 'flex', alignItems: 'flex-end', gap: theme.spacing.medium },
@@ -182,7 +284,7 @@ const MatchForm: React.FC<MatchFormProps> = ({ onAddMatch, onUpdateMatch, onCanc
       fontSize: '1.25rem', fontWeight: 600, color: theme.colors.primaryText,
       minWidth: '30px', textAlign: 'center'
     },
-    fieldGroup: { display: 'flex', flexDirection: 'column', gap: theme.spacing.small, flex: 1, },
+    fieldGroup: { display: 'flex', flexDirection: 'column', gap: theme.spacing.small, flex: 1, minWidth: 0 },
     label: { fontSize: theme.typography.fontSize.small, color: theme.colors.secondaryText, fontWeight: 500, paddingLeft: '0.25rem', },
     textarea: { resize: 'vertical', minHeight: '80px', fontFamily: theme.typography.fontFamily },
     toggleNotesButton: {
@@ -203,6 +305,7 @@ const MatchForm: React.FC<MatchFormProps> = ({ onAddMatch, onUpdateMatch, onCanc
     cancelButton: { backgroundColor: theme.colors.borderStrong, color: theme.colors.primaryText },
     resultButtonGroup: {
         display: 'flex',
+        width: '100%',
     },
     resultButton: {
       flex: 1,
@@ -243,7 +346,7 @@ const MatchForm: React.FC<MatchFormProps> = ({ onAddMatch, onUpdateMatch, onCanc
     },
     lineupsContainer: {
         backgroundColor: theme.colors.background,
-        padding: theme.spacing.medium,
+        padding: theme.spacing.small, // Reduced padding for mobile
         borderRadius: theme.borderRadius.medium,
         border: `1px solid ${theme.colors.border}`,
         display: 'flex',
@@ -260,17 +363,43 @@ const MatchForm: React.FC<MatchFormProps> = ({ onAddMatch, onUpdateMatch, onCanc
     },
     playerInputRow: {
         display: 'flex',
-        gap: theme.spacing.small,
+        gap: '2px',
         alignItems: 'center',
     },
-    statInput: {
-        width: '40px',
-        padding: '0.3rem',
-        textAlign: 'center' as 'center',
+    minutesInputContainer: {
+        display: 'flex',
+        alignItems: 'center',
         backgroundColor: theme.colors.background,
         border: `1px solid ${theme.colors.borderStrong}`,
-        borderRadius: theme.borderRadius.medium,
-        color: theme.colors.primaryText
+        borderRadius: theme.borderRadius.small,
+        height: '30px',
+        padding: '0 1px',
+        width: '28px',
+        justifyContent: 'center',
+        flexShrink: 0,
+    },
+    minutesInput: {
+        width: '100%',
+        height: '100%',
+        border: 'none',
+        background: 'transparent',
+        color: theme.colors.primaryText,
+        fontSize: '0.7rem',
+        textAlign: 'center',
+        padding: 0,
+        outline: 'none',
+        fontWeight: 600,
+    },
+    minutesDisplay: {
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '0.7rem',
+        fontWeight: 600,
+        color: theme.colors.primaryText,
+        cursor: 'pointer',
     },
     addPlayerButton: {
         background: 'none',
@@ -289,19 +418,34 @@ const MatchForm: React.FC<MatchFormProps> = ({ onAddMatch, onUpdateMatch, onCanc
         background: 'none',
         border: `1px solid ${theme.colors.loss}80`,
         color: theme.colors.loss,
-        width: '24px',
-        height: '24px',
+        width: '20px',
+        height: '20px',
         borderRadius: '50%',
         cursor: 'pointer',
-        fontSize: '1rem',
+        fontSize: '0.9rem',
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'center',
         padding: 0,
         lineHeight: 1,
         flexShrink: 0,
+        marginLeft: '2px',
     },
     starterToggleButton: {
+        background: 'none',
+        border: 'none',
+        color: theme.colors.secondaryText,
+        width: '20px',
+        height: '20px',
+        borderRadius: '50%',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 0,
+        flexShrink: 0,
+    },
+    cardToggleButton: {
         background: 'none',
         border: 'none',
         color: theme.colors.secondaryText,
@@ -314,7 +458,7 @@ const MatchForm: React.FC<MatchFormProps> = ({ onAddMatch, onUpdateMatch, onCanc
         justifyContent: 'center',
         padding: 0,
         flexShrink: 0,
-    }
+    },
   };
   
   return (
@@ -392,6 +536,15 @@ const MatchForm: React.FC<MatchFormProps> = ({ onAddMatch, onUpdateMatch, onCanc
 
       {isLineupsExpanded && (
         <div style={{...styles.lineupsContainer, animation: 'fadeIn 0.5s ease-in-out'}}>
+          <div style={styles.fieldGroup}>
+            <label style={styles.label}>Torneo (Opcional)</label>
+            <AutocompleteInput 
+              value={tournament} 
+              onChange={setTournament} 
+              suggestions={allTournaments}
+              placeholder="Nombre del Torneo"
+            />
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: theme.spacing.medium, marginBottom: theme.spacing.medium }}>
             <div style={styles.fieldGroup}>
               <AutocompleteInput value={teamName} onChange={setTeamName} suggestions={allMyTeamNames} placeholder="Mi Equipo"/>
@@ -403,23 +556,149 @@ const MatchForm: React.FC<MatchFormProps> = ({ onAddMatch, onUpdateMatch, onCanc
 
           <div style={styles.playersGrid}>
             <div>
-                {players.map((player, index) => (
-                    <div key={`mine-${index}`} style={styles.playerInputContainer}>
-                        <div style={styles.playerInputRow}>
-                            <button type="button" onClick={() => handleTogglePlayerStatus(index)} style={styles.starterToggleButton} aria-label={`Cambiar estado de titular para ${player.name}`}>
-                                <StarterStatusIcon status={player.status} />
-                            </button>
-                            <div style={{flex: 1}}><AutocompleteInput placeholder={`Jugador ${index + 1}`} value={player.name} onChange={(value) => handlePlayerInputChange(index, 'name', value)} suggestions={allPlayers}/></div>
-                            <input type="number" min="0" value={player.goals} onChange={e => handlePlayerInputChange(index, 'goals', e.target.value)} style={styles.statInput} aria-label={`Goles de ${player.name || 'compañero'}`} />
-                            <input type="number" min="0" value={player.assists} onChange={e => handlePlayerInputChange(index, 'assists', e.target.value)} style={styles.statInput} aria-label={`Asistencias de ${player.name || 'compañero'}`} />
-                            <input type="number" min="0" max="120" value={player.minutesPlayed ?? 90} onChange={e => handlePlayerInputChange(index, 'minutesPlayed', e.target.value)} style={styles.statInput} aria-label={`Minutos de ${player.name || 'compañero'}`} placeholder="Min" />
-                            <button type="button" onClick={() => handleRemovePlayerInput(index)} style={styles.removePlayerButton} aria-label={`Eliminar jugador ${index + 1}`}>&times;</button>
+                <label style={styles.label}>Mi Equipo</label>
+                <div style={{display: 'flex', alignItems: 'center', gap: '2px', marginBottom: theme.spacing.small}}>
+                    <span style={{fontSize: '8px', color: theme.colors.secondaryText, width: '20px', textAlign: 'center'}}>Tit</span>
+                    <div style={{flex: 1}} /> {/* Spacer for player name */}
+                    <span style={{fontSize: '8px', color: theme.colors.secondaryText, width: '24px', textAlign: 'center'}}>Tarj</span>
+                    <div style={{width: '34px'}}></div> {/* Spacer for Goals */}
+                    <div style={{width: '34px'}}></div> {/* Spacer for Assists */}
+                    <span style={{fontSize: '8px', color: theme.colors.secondaryText, width: '28px', textAlign: 'center'}}>Min</span>
+                    <div style={{width: '22px'}}></div> {/* Spacer for Delete */}
+                </div>
+                {players.map((player, index) => {
+                    const availablePlayers = allPlayers.filter(p => 
+                      !usedPlayerNames.has(p.toLowerCase()) || p.toLowerCase() === player.name.trim().toLowerCase()
+                    );
+
+                    return (
+                        <div key={`mine-${index}`} style={styles.playerInputContainer}>
+                            <div style={styles.playerInputRow}>
+                                <button type="button" onClick={() => handleTogglePlayerStatus(index)} style={styles.starterToggleButton} aria-label={`Cambiar estado de titular para ${player.name}`}>
+                                    <StarterStatusIcon status={player.status} size={14} />
+                                </button>
+                                {/* Jersey input removed */}
+                                <div style={{flex: 1, minWidth: '80px'}}>
+                                  <AutocompleteInput 
+                                    placeholder={`Jugador ${index + 1}`} 
+                                    value={player.name} 
+                                    onChange={(value) => handlePlayerInputChange(index, 'name', value)} 
+                                    suggestions={availablePlayers}
+                                  />
+                                </div>
+                                <button type="button" onClick={() => handleTogglePlayerCard(index)} style={styles.cardToggleButton} aria-label={`Añadir/cambiar tarjeta para ${player.name}`}>
+                                    <CardIcon card={player.card} size={18} />
+                                </button>
+                                <StatStepper 
+                                    value={player.goals} 
+                                    onChange={(val) => handlePlayerInputChange(index, 'goals', val)} 
+                                    activeColor={theme.colors.accent1} 
+                                    label={`Goles de ${player.name}`}
+                                    icon="⚽️"
+                                />
+                                <StatStepper 
+                                    value={player.assists} 
+                                    onChange={(val) => handlePlayerInputChange(index, 'assists', val)} 
+                                    activeColor={theme.colors.accent2}
+                                    label={`Asistencias de ${player.name}`}
+                                    icon="👟"
+                                />
+                                <div style={styles.minutesInputContainer} title={`Minutos de ${player.name || 'jugador'}`}>
+                                    {editingMinuteIndex === index ? (
+                                        <input 
+                                            type="number" 
+                                            min="0" 
+                                            max="120" 
+                                            value={player.minutesPlayed ?? 90} 
+                                            onChange={e => handlePlayerInputChange(index, 'minutesPlayed', e.target.value)} 
+                                            onBlur={() => setEditingMinuteIndex(null)}
+                                            autoFocus
+                                            style={styles.minutesInput} 
+                                            placeholder="Min" 
+                                        />
+                                    ) : (
+                                        <div style={styles.minutesDisplay} onClick={() => setEditingMinuteIndex(index)}>
+                                            {player.minutesPlayed ?? 90}
+                                        </div>
+                                    )}
+                                </div>
+                                <button type="button" onClick={() => handleRemovePlayerInput(index)} style={styles.removePlayerButton} aria-label={`Eliminar jugador ${index + 1}`}>&times;</button>
+                            </div>
                         </div>
-                    </div>
-                ))}
+                    );
+                })}
                 <button type="button" onClick={handleAddPlayerInput} style={styles.addPlayerButton}>+ JUGADOR</button>
             </div>
           </div>
+           <div style={{ borderTop: `1px solid ${theme.colors.border}`, paddingTop: theme.spacing.large, marginTop: theme.spacing.large }}>
+              <label style={styles.label}>Incidencias del Partido</label>
+               {incidents.map((incident, index) => (
+                    <div key={index} style={{...styles.playerInputRow, marginBottom: theme.spacing.small, alignItems: 'flex-start'}}>
+                        <div style={{flex: 1, display: 'flex', gap: theme.spacing.small, flexDirection: 'column'}}>
+                            <div style={{display: 'flex', gap: theme.spacing.small}}>
+                                <select
+                                    value={incident.type}
+                                    onChange={(e) => handleIncidentChange(index, 'type', e.target.value)}
+                                    style={{...styles.input, flex: 1, padding: theme.spacing.small, fontSize: '0.8rem', minWidth: 0}}
+                                >
+                                    <option value="substitution">Cambio 🔄</option>
+                                    <option value="penal_errado">Penal Errado</option>
+                                    <option value="penal_atajado">Penal Atajado</option>
+                                </select>
+                                {incident.type === 'substitution' && (
+                                    <div style={{...styles.minutesInputContainer, width: '40px'}} title="Minuto del cambio">
+                                        <input
+                                            type="number"
+                                            min="0"
+                                            max="120"
+                                            value={incident.minute || ''}
+                                            onChange={(e) => handleIncidentChange(index, 'minute', parseInt(e.target.value) || 0)}
+                                            style={styles.minutesInput}
+                                            placeholder="Min"
+                                        />
+                                    </div>
+                                )}
+                            </div>
+                            
+                            {incident.type === 'substitution' ? (
+                                <div style={{display: 'flex', gap: theme.spacing.small, alignItems: 'center'}}>
+                                    <div style={{flex: 1, position: 'relative', minWidth: 0}}>
+                                        <span style={{position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', color: theme.colors.loss}}>⬇️</span>
+                                        <div style={{paddingLeft: '20px'}}>
+                                            <AutocompleteInput
+                                                placeholder="Sale"
+                                                value={incident.playerName}
+                                                onChange={(value) => handleIncidentChange(index, 'playerName', value)}
+                                                suggestions={allPlayers}
+                                            />
+                                        </div>
+                                    </div>
+                                    <div style={{flex: 1, position: 'relative', minWidth: 0}}>
+                                        <span style={{position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', color: theme.colors.win}}>⬆️</span>
+                                                         <div style={{paddingLeft: '20px'}}>
+                                            <AutocompleteInput
+                                                placeholder="Entra"
+                                                value={incident.playerIn || ''}
+                                                onChange={(value) => handleIncidentChange(index, 'playerIn', value)}
+                                                suggestions={allPlayers}
+                                            />
+                                         </div>
+                                    </div>
+                                </div>
+                            ) : (
+                                <AutocompleteInput
+                                    placeholder="Jugador"
+                                    value={incident.playerName}
+                                    onChange={(value) => handleIncidentChange(index, 'playerName', value)}
+                                    suggestions={allPlayers}
+                                />
+                            )}
+                        </div>
+                        <button type="button" onClick={() => handleRemoveIncident(index)} style={{...styles.removePlayerButton, marginTop: '8px'}} aria-label={`Eliminar incidencia ${index + 1}`}>&times;</button>
+                    </div>
+                ))}
+              <button type="button" onClick={handleAddIncident} style={styles.addPlayerButton}>+ INCIDENCIA</button>
+           </div>
         </div>
       )}
 

@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import type { SquadPlayerStats, PlayerPairStats } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
@@ -8,8 +9,11 @@ import RankedPlayerListItem from '../components/squad/RankedPlayerListItem';
 import PlayerComparator from '../components/squad/PlayerComparator';
 import AssociationHeatmap from '../components/squad/AssociationHeatmap';
 import AssociationListItem from '../components/squad/AssociationListItem';
+import SettingsSection from '../components/common/SettingsSection';
+import { TrashIcon } from '../components/icons/TrashIcon';
 
 const HEADERS: { key: keyof SquadPlayerStats; label: string; isNumeric: boolean }[] = [
+    { key: 'jerseyNumber', label: '#', isNumeric: true },
     { key: 'name', label: 'Nombre', isNumeric: false },
     { key: 'matchesPlayed', label: 'PJ', isNumeric: true },
     { key: 'starts', label: 'Titular/Sup.', isNumeric: false },
@@ -24,12 +28,17 @@ const HEADERS: { key: keyof SquadPlayerStats; label: string; isNumeric: boolean 
 
 const SquadPage: React.FC = () => {
   const { theme } = useTheme();
-  const { matches, setViewingPlayerName } = useData();
+  const { matches, setViewingPlayerName, myTeamPlayers, addPlayerToRoster, deletePlayerFromRoster, playerProfiles, updatePlayerProfile, activeTeams } = useData();
   const [sortConfig, setSortConfig] = useState<{ key: keyof SquadPlayerStats; direction: 'asc' | 'desc' }>({ key: 'matchesPlayed', direction: 'desc' });
 
   const [selectedTeam, setSelectedTeam] = useState<string>('all');
+  const [newPlayerName, setNewPlayerName] = useState('');
+  const [isAddingPlayer, setIsAddingPlayer] = useState(false);
   
-  const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 768);
+  const [editingJersey, setEditingJersey] = useState<string | null>(null);
+  const [jerseyInput, setJerseyInput] = useState('');
+
+  const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 992);
   const [activeSlide, setActiveSlide] = useState(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const prevGoleadoresRef = useRef<SquadPlayerStats[]>([]);
@@ -38,27 +47,20 @@ const SquadPage: React.FC = () => {
   const prevAssociationsRef = useRef<PlayerPairStats[]>([]);
   
   useEffect(() => {
-    const handleResize = () => setIsDesktop(window.innerWidth >= 768);
+    const handleResize = () => setIsDesktop(window.innerWidth >= 992);
     window.addEventListener('resize', handleResize);
     return () => window.removeEventListener('resize', handleResize);
   }, []);
 
-  const myTeams = useMemo(() => {
-    const teams = new Set<string>();
-    matches.forEach(m => {
-        if (m.teamName) teams.add(m.teamName);
-    });
-    return Array.from(teams).sort();
-  }, [matches]);
-
   const relevantMatches = useMemo(() => {
-    return selectedTeam === 'all' 
-      ? matches 
-      : matches.filter(m => m.teamName === selectedTeam);
-  }, [matches, selectedTeam]);
+    if (selectedTeam === 'all') {
+        return matches.filter(m => activeTeams.includes(m.teamName));
+    }
+    return matches.filter(m => m.teamName === selectedTeam);
+  }, [matches, selectedTeam, activeTeams]);
   
   const squadStats: SquadPlayerStats[] = useMemo(() => {
-    const playerStats: { [name: string]: Omit<SquadPlayerStats, 'name' | 'winRate' | 'gpm' | 'apm' | 'minutesPercentage' | 'efectividad' | 'cleanSheets'> & { isGoalkeeper: boolean; goalsAgainst: number } } = {};
+    const playerStats: { [name: string]: Omit<SquadPlayerStats, 'name' | 'winRate' | 'gpm' | 'apm' | 'minutesPercentage' | 'efectividad' | 'cleanSheets' | 'jerseyNumber'> & { isGoalkeeper: boolean; goalsAgainst: number } } = {};
     const playerCleanSheets: Record<string, number> = {};
 
     relevantMatches.forEach(match => {
@@ -112,6 +114,7 @@ const SquadPage: React.FC = () => {
       return {
         name,
         ...stats,
+        jerseyNumber: playerProfiles[name]?.jerseyNumber,
         winRate: stats.matchesPlayed > 0 ? (stats.record.wins / stats.matchesPlayed) * 100 : 0,
         efectividad: stats.matchesPlayed > 0 ? (points / (stats.matchesPlayed * 3)) * 100 : 0,
         gpm: stats.matchesPlayed > 0 ? stats.goals / stats.matchesPlayed : 0,
@@ -129,7 +132,7 @@ const SquadPage: React.FC = () => {
       ...player,
       minutesPercentage: maxMinutes > 0 ? (player.minutesPlayed / maxMinutes) * 100 : 0,
     }));
-  }, [relevantMatches]);
+  }, [relevantMatches, playerProfiles]);
   
   const topGoleadores = useMemo(() => {
     const sorted = [...squadStats].sort((a,b) => b.goals - a.goals || b.matchesPlayed - a.matchesPlayed).slice(0, 10);
@@ -198,6 +201,9 @@ const SquadPage: React.FC = () => {
         for (let i = 0; i < playersInMatch.length; i++) {
             for (let j = i + 1; j < playersInMatch.length; j++) {
                 const p1 = playersInMatch[i]; const p2 = playersInMatch[j];
+                if (p1.status === 'goalkeeper' || p2.status === 'goalkeeper') {
+                    continue;
+                }
                 if (!p1.name || !p2.name) continue;
 
                 const pairKey = [p1.name, p2.name].sort().join('-');
@@ -320,9 +326,40 @@ const SquadPage: React.FC = () => {
     return sortConfig.direction === 'desc' ? ' ↓' : ' ↑';
   };
   
+  const handleJerseyEditStart = (player: SquadPlayerStats) => {
+    setEditingJersey(player.name);
+    setJerseyInput(player.jerseyNumber?.toString() || '');
+  };
+
+  const handleJerseyEditSave = () => {
+    if (!editingJersey) return;
+    const newNumber = jerseyInput.trim() === '' ? undefined : parseInt(jerseyInput, 10);
+    if (newNumber !== undefined && isNaN(newNumber)) return;
+    updatePlayerProfile(editingJersey, { jerseyNumber: newNumber });
+    setEditingJersey(null);
+  };
+  
   const getCellContent = (player: SquadPlayerStats, key: keyof SquadPlayerStats) => {
     const value = player[key];
     switch(key) {
+        case 'jerseyNumber':
+            if (editingJersey === player.name) {
+                return <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    value={jerseyInput}
+                    onChange={(e) => {
+                        const numericValue = e.target.value.replace(/[^0-9]/g, '');
+                        setJerseyInput(numericValue);
+                    }}
+                    onBlur={handleJerseyEditSave}
+                    onKeyDown={(e) => { if (e.key === 'Enter') handleJerseyEditSave(); }}
+                    autoFocus
+                    style={{ width: '40px', textAlign: 'center', backgroundColor: theme.colors.background, border: `1px solid ${theme.colors.accent1}`, borderRadius: '4px', fontSize: theme.typography.fontSize.extraSmall, padding: theme.spacing.extraSmall }}
+                />;
+            }
+            return <div onClick={() => handleJerseyEditStart(player)} style={{ cursor: 'pointer', minWidth: '40px', textAlign: 'center' }}>{value || '-'}</div>;
         case 'name':
             return <div style={{fontWeight: 'bold', cursor: 'pointer'}} onClick={() => setViewingPlayerName(player.name)}>{value}</div>;
         case 'starts':
@@ -372,10 +409,38 @@ const SquadPage: React.FC = () => {
           });
       }
   };
+
+  const handleAddPlayer = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (newPlayerName.trim()) {
+        addPlayerToRoster(newPlayerName);
+        setNewPlayerName('');
+        setIsAddingPlayer(false);
+    }
+  };
   
   const styles: { [key: string]: React.CSSProperties } = {
     container: { maxWidth: '1200px', margin: '0 auto', padding: `${theme.spacing.extraLarge} ${theme.spacing.medium}`, display: 'flex', flexDirection: 'column', gap: theme.spacing.large },
+    header: {
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        gap: theme.spacing.large,
+        flexWrap: 'wrap',
+    },
     pageTitle: { fontSize: theme.typography.fontSize.extraLarge, fontWeight: 700, color: theme.colors.primaryText, margin: 0, borderLeft: `4px solid ${theme.colors.accent1}`, paddingLeft: theme.spacing.medium },
+    filterContainer: { display: 'flex', alignItems: 'center', gap: theme.spacing.medium },
+    filterLabel: { color: theme.colors.secondaryText, fontSize: theme.typography.fontSize.small, fontWeight: 500 },
+    filterSelect: {
+        backgroundColor: theme.colors.surface,
+        color: theme.colors.primaryText,
+        border: `1px solid ${theme.colors.borderStrong}`,
+        borderRadius: theme.borderRadius.medium,
+        padding: theme.spacing.small,
+        fontSize: theme.typography.fontSize.small,
+        fontWeight: 600,
+        cursor: 'pointer',
+    },
     tableWrapper: { overflowX: 'auto', backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.large, border: `1px solid ${theme.colors.border}`, boxShadow: theme.shadows.medium },
     table: { width: '100%', borderCollapse: 'collapse' },
     th: { padding: `${theme.spacing.small} ${theme.spacing.medium}`, textAlign: 'left', fontSize: theme.typography.fontSize.small, color: theme.colors.secondaryText, fontWeight: 600, borderBottom: `2px solid ${theme.colors.borderStrong}`, cursor: 'pointer', whiteSpace: 'nowrap' },
@@ -394,19 +459,6 @@ const SquadPage: React.FC = () => {
         backgroundColor: theme.colors.accent1,
         borderRadius: '4px',
         transition: 'width 0.3s ease-out'
-    },
-    filterContainer: { display: 'flex', alignItems: 'center', gap: theme.spacing.medium },
-    filterLabel: { color: theme.colors.secondaryText, fontSize: theme.typography.fontSize.small, fontWeight: 500 },
-    filterSelect: {
-        flex: 1,
-        backgroundColor: theme.colors.background,
-        color: theme.colors.primaryText,
-        border: `1px solid ${theme.colors.borderStrong}`,
-        borderRadius: theme.borderRadius.medium,
-        padding: theme.spacing.small,
-        fontSize: theme.typography.fontSize.small,
-        fontWeight: 600,
-        cursor: 'pointer',
     },
     carouselWrapper: {
         width: '100%',
@@ -446,6 +498,17 @@ const SquadPage: React.FC = () => {
         background: theme.colors.accent1,
         transform: 'scale(1.25)',
     },
+    desktopGrid: {
+        display: 'grid',
+        gridTemplateColumns: '450px minmax(0, 1fr)',
+        gap: theme.spacing.extraLarge,
+        alignItems: 'start',
+    },
+    column: {
+        display: 'flex',
+        flexDirection: 'column',
+        gap: theme.spacing.large,
+    },
   };
 
   if (matches.length === 0) {
@@ -459,119 +522,201 @@ const SquadPage: React.FC = () => {
           </main>
       )
   }
+  
+  const analysisContent = (
+    <div style={styles.carouselWrapper}>
+        <div ref={scrollContainerRef} style={styles.carouselContainer} onScroll={handleScroll} className="carousel-scrollbar">
+            {analysisCards.map((card, index) => (
+                <div key={index} style={styles.carouselSlide}>
+                    <Card title={<>{card.icon} {card.title}</>}>
+                        <p style={styles.cardDescription}>{card.description}</p>
+                        {card.type === 'associations' && (
+                            isDesktop ? (
+                                <AssociationHeatmap 
+                                    players={associationData.topPlayers} 
+                                    pairs={associationData.pairs} 
+                                />
+                            ) : (
+                                <div>
+                                    {associationData.pairs.slice(0, 10).map((pair, index, arr) => (
+                                        <AssociationListItem
+                                            key={`${pair.player1}-${pair.player2}`}
+                                            rank={index + 1}
+                                            pair={pair}
+                                            isLast={index === arr.length - 1}
+                                        />
+                                    ))}
+                                </div>
+                            )
+                        )}
+                        {(card.type === 'goleadores' || card.type === 'asistidores' || card.type === 'vallas') && 
+                          (card.data as (SquadPlayerStats & { rankMovement: PlayerPairStats['rankMovement'] })[]).map((player, index, arr) => (
+                            <RankedPlayerListItem
+                              key={player.name}
+                              rank={index + 1}
+                              playerName={player.name}
+                              statValue={card.type === 'goleadores' ? player.goals : card.type === 'asistidores' ? player.assists : player.cleanSheets}
+                              rankMovement={player.rankMovement}
+                              secondaryStatValue={
+                                  card.type === 'goleadores' ? `${player.gpm.toFixed(2)} G/P` :
+                                  card.type === 'asistidores' ? `${player.apm.toFixed(2)} A/P` :
+                                  `${player.matchesPlayed > 0 ? ((player.cleanSheets / player.matchesPlayed) * 100).toFixed(0) : 0}% V.I.`
+                              }
+                              isLast={index === arr.length - 1}
+                            />
+                        ))}
+                    </Card>
+                </div>
+            ))}
+        </div>
+        <div style={styles.paginationContainer}>
+            {analysisCards.map((_, index) => (
+                <button key={index} style={index === activeSlide ? {...styles.dot, ...styles.activeDot} : styles.dot} onClick={() => scrollToSlide(index)} aria-label={`Ir a la tarjeta ${index + 1}`}/>
+            ))}
+        </div>
+    </div>
+  );
+  
+  const tableContent = (
+    <div style={styles.tableWrapper} className="subtle-scrollbar">
+      <table style={styles.table}>
+        <thead>
+          <tr>
+            {HEADERS.map(header => (
+              <th key={header.key} style={styles.th} onClick={() => requestSort(header.key)}>
+                {header.label}{getSortIndicator(header.key)}
+              </th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {sortedSquad.map(player => (
+            <tr key={player.name} style={styles.tr} className="table-row">
+              {HEADERS.map(header => (
+                  <td key={header.key} style={{...styles.td, ...(header.isNumeric && {textAlign: 'right'})}}>
+                      {getCellContent(player, header.key)}
+                  </td>
+              ))}
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
+  const rosterManagementContent = (
+    <div>
+        {!isAddingPlayer ? (
+            <button
+                onClick={() => setIsAddingPlayer(true)}
+                style={{
+                    width: '100%',
+                    padding: theme.spacing.medium,
+                    background: 'none',
+                    border: `1px dashed ${theme.colors.borderStrong}`,
+                    color: theme.colors.secondaryText,
+                    borderRadius: theme.borderRadius.medium,
+                    cursor: 'pointer',
+                    fontWeight: 'bold',
+                    fontSize: theme.typography.fontSize.small,
+                }}
+            >
+                + Añadir Jugador al Plantel
+            </button>
+        ) : (
+            <div style={{ animation: 'fadeInContent 0.5s ease-out' }}>
+                <form onSubmit={handleAddPlayer} style={{ display: 'flex', gap: theme.spacing.small }}>
+                    <input
+                        type="text"
+                        value={newPlayerName}
+                        onChange={(e) => setNewPlayerName(e.target.value)}
+                        placeholder="Nombre del jugador"
+                        style={{
+                            flex: 1,
+                            padding: theme.spacing.medium,
+                            background: theme.colors.background,
+                            border: `1px solid ${theme.colors.borderStrong}`,
+                            borderRadius: theme.borderRadius.medium,
+                            color: theme.colors.primaryText,
+                        }}
+                        autoFocus
+                    />
+                    <button
+                        type="submit"
+                        style={{
+                            padding: `0 ${theme.spacing.medium}`,
+                            border: 'none',
+                            background: theme.colors.accent1,
+                            color: theme.colors.textOnAccent,
+                            borderRadius: theme.borderRadius.medium,
+                            fontWeight: 'bold',
+                            cursor: 'pointer',
+                        }}
+                    >
+                        Añadir
+                    </button>
+                </form>
+            </div>
+        )}
+    </div>
+  );
+
 
   return (
     <>
     <style>{`
         .table-row:hover { background-color: ${theme.colors.background}; }
-        .subtle-scrollbar::-webkit-scrollbar { height: 8px; }
+        .subtle-scrollbar::-webkit-scrollbar { height: 8px; width: 6px; }
         .subtle-scrollbar::-webkit-scrollbar-track { background: transparent; }
         .subtle-scrollbar::-webkit-scrollbar-thumb { background-color: ${theme.colors.border}; border-radius: 10px; }
         .subtle-scrollbar { scrollbar-width: thin; scrollbar-color: ${theme.colors.border} transparent; }
         .carousel-scrollbar { scrollbar-width: none; }
         .carousel-scrollbar::-webkit-scrollbar { display: none; }
+        @keyframes fadeInContent {
+          from { opacity: 0; transform: translateY(-10px); }
+          to { opacity: 1; transform: translateY(0); }
+        }
     `}</style>
     <main style={styles.container}>
-      <h2 style={styles.pageTitle}>Plantel del Equipo</h2>
+        <div style={styles.header}>
+            <h2 style={styles.pageTitle}>Plantel del Equipo</h2>
+            {activeTeams.length > 1 && (
+                 <div style={styles.filterContainer}>
+                    <label style={styles.filterLabel}>Equipo:</label>
+                    <select value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)} style={styles.filterSelect}>
+                        <option value="all">Todos mis equipos</option>
+                        {activeTeams.map(team => <option key={team} value={team}>{team}</option>)}
+                    </select>
+                </div>
+            )}
+        </div>
       
-      {myTeams.length > 1 && (
-        <Card>
-            <div style={styles.filterContainer}>
-                <label style={styles.filterLabel}>Mostrando plantel de:</label>
-                <select value={selectedTeam} onChange={e => setSelectedTeam(e.target.value)} style={styles.filterSelect}>
-                    <option value="all">Todos mis equipos</option>
-                    {myTeams.map(team => <option key={team} value={team}>{team}</option>)}
-                </select>
-            </div>
-        </Card>
-      )}
-
-      {squadStats.length === 0 ? (
+      {squadStats.length === 0 && myTeamPlayers.length === 0 ? (
          <div style={styles.noDataContainer}>
             <UsersIcon size={40} color={theme.colors.secondaryText} />
-            <p style={{ marginTop: theme.spacing.medium }}>No hay jugadores registrados para {selectedTeam} en el historial.</p>
+            <p style={{ marginTop: theme.spacing.medium }}>Añade jugadores para ver las estadísticas del plantel.</p>
+            {rosterManagementContent}
         </div>
       ) : (
-        <>
-            <div style={styles.carouselWrapper}>
-                <div ref={scrollContainerRef} style={styles.carouselContainer} onScroll={handleScroll} className="carousel-scrollbar">
-                    {analysisCards.map((card, index) => (
-                        <div key={index} style={styles.carouselSlide}>
-                            <Card title={<>{card.icon} {card.title}</>}>
-                                <p style={styles.cardDescription}>{card.description}</p>
-                                {card.type === 'associations' && (
-                                    isDesktop ? (
-                                        <AssociationHeatmap 
-                                            players={associationData.topPlayers} 
-                                            pairs={associationData.pairs} 
-                                        />
-                                    ) : (
-                                        <div>
-                                            {associationData.pairs.slice(0, 10).map((pair, index, arr) => (
-                                                <AssociationListItem
-                                                    key={`${pair.player1}-${pair.player2}`}
-                                                    rank={index + 1}
-                                                    pair={pair}
-                                                    isLast={index === arr.length - 1}
-                                                />
-                                            ))}
-                                        </div>
-                                    )
-                                )}
-                                {(card.type === 'goleadores' || card.type === 'asistidores' || card.type === 'vallas') && 
-                                  (card.data as (SquadPlayerStats & { rankMovement: PlayerPairStats['rankMovement'] })[]).map((player, index, arr) => (
-                                    <RankedPlayerListItem
-                                      key={player.name}
-                                      rank={index + 1}
-                                      playerName={player.name}
-                                      statValue={card.type === 'goleadores' ? player.goals : card.type === 'asistidores' ? player.assists : player.cleanSheets}
-                                      rankMovement={player.rankMovement}
-                                      secondaryStatValue={
-                                          card.type === 'goleadores' ? `${player.gpm.toFixed(2)} G/P` :
-                                          card.type === 'asistidores' ? `${player.apm.toFixed(2)} A/P` :
-                                          `${player.matchesPlayed > 0 ? ((player.cleanSheets / player.matchesPlayed) * 100).toFixed(0) : 0}% V.I.`
-                                      }
-                                      isLast={index === arr.length - 1}
-                                    />
-                                ))}
-                            </Card>
-                        </div>
-                    ))}
+        isDesktop ? (
+            <div style={styles.desktopGrid}>
+                <div style={styles.column}>
+                    {analysisContent}
+                    <PlayerComparator squadStats={squadStats} allPlayerNames={allPlayerNames} />
+                    {rosterManagementContent}
                 </div>
-                <div style={styles.paginationContainer}>
-                    {analysisCards.map((_, index) => (
-                        <button key={index} style={index === activeSlide ? {...styles.dot, ...styles.activeDot} : styles.dot} onClick={() => scrollToSlide(index)} aria-label={`Ir a la tarjeta ${index + 1}`}/>
-                    ))}
+                <div style={styles.column}>
+                    {tableContent}
                 </div>
             </div>
-            
-            <div style={styles.tableWrapper} className="subtle-scrollbar">
-              <table style={styles.table}>
-                <thead>
-                  <tr>
-                    {HEADERS.map(header => (
-                      <th key={header.key} style={styles.th} onClick={() => requestSort(header.key)}>
-                        {header.label}{getSortIndicator(header.key)}
-                      </th>
-                    ))}
-                  </tr>
-                </thead>
-                <tbody>
-                  {sortedSquad.map(player => (
-                    <tr key={player.name} style={styles.tr} className="table-row">
-                      {HEADERS.map(header => (
-                          <td key={header.key} style={{...styles.td, ...(header.isNumeric && {textAlign: 'right'})}}>
-                              {getCellContent(player, header.key)}
-                          </td>
-                      ))}
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-
-            <PlayerComparator squadStats={squadStats} allPlayerNames={allPlayerNames} />
-        </>
+        ) : (
+            <>
+                {analysisContent}
+                {rosterManagementContent}
+                {tableContent}
+                <PlayerComparator squadStats={squadStats} allPlayerNames={allPlayerNames} />
+            </>
+        )
       )}
     </main>
     </>

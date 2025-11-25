@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useEffect } from 'react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { MoraleLevel, type Match, type HistoricalRecords, type PlayerMorale } from '../../types';
@@ -221,6 +222,62 @@ const StreaksWidget: React.FC<StreaksWidgetProps> = ({ matches }) => {
     calculateHistoricalRecords(filteredMatches), 
   [filteredMatches]);
 
+  const playerRecords = useMemo(() => {
+    const sortedMatches = [...filteredMatches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()); // Oldest first for streak calc
+
+    const currentGoalRun: Record<string, number> = {};
+    const maxGoalRun: Record<string, number> = {};
+
+    const currentCleanSheetRun: Record<string, number> = {};
+    const maxCleanSheetRun: Record<string, number> = {};
+
+    const totalMinutes: Record<string, number> = {};
+
+    sortedMatches.forEach(match => {
+        match.players.forEach(p => {
+            // Goals Streak
+            if (p.goals > 0) {
+                currentGoalRun[p.name] = (currentGoalRun[p.name] || 0) + 1;
+                maxGoalRun[p.name] = Math.max(maxGoalRun[p.name] || 0, currentGoalRun[p.name]);
+            } else {
+                currentGoalRun[p.name] = 0;
+            }
+
+            // Clean Sheets Streak (GK)
+            if (p.status === 'goalkeeper') {
+                if (match.opponentScore === 0) {
+                    currentCleanSheetRun[p.name] = (currentCleanSheetRun[p.name] || 0) + 1;
+                    maxCleanSheetRun[p.name] = Math.max(maxCleanSheetRun[p.name] || 0, currentCleanSheetRun[p.name]);
+                } else {
+                    currentCleanSheetRun[p.name] = 0;
+                }
+            }
+
+            // Iron Man (Minutes)
+            totalMinutes[p.name] = (totalMinutes[p.name] || 0) + (p.minutesPlayed || 0);
+        });
+    });
+
+    const getBest = (records: Record<string, number>) => {
+        let bestName = '-';
+        let bestValue = 0;
+        Object.entries(records).forEach(([name, value]) => {
+            if (value > bestValue) {
+                bestValue = value;
+                bestName = name;
+            }
+        });
+        return { name: bestName, value: bestValue };
+    };
+
+    return {
+        bestGoalStreak: getBest(maxGoalRun),
+        bestCleanSheetStreak: getBest(maxCleanSheetRun),
+        ironMan: getBest(totalMinutes),
+    };
+
+  }, [filteredMatches]);
+
   const styles: { [key: string]: React.CSSProperties } = {
     container: { display: 'flex', flexDirection: 'column', gap: theme.spacing.large },
     sectionTitle: {
@@ -250,6 +307,54 @@ const StreaksWidget: React.FC<StreaksWidgetProps> = ({ matches }) => {
     { label: "Partidos marcando", value: currentStreaks.goalStreak, icon: <span style={iconStyle}>⚽️</span> },
     { label: "Vallas invictas", value: currentStreaks.cleanSheetStreak, icon: <span style={iconStyle}>🧤</span> },
   ];
+
+  // Helper component for the individual stats - Horizontal Layout
+  // Layout: [Value] [Name] ... [Label] [Icon]
+  const PlayerHighlightCard = ({ value, label, name, icon }: { value: string | number, label: string, name: string, icon: React.ReactNode }) => (
+      <div style={{
+          backgroundColor: theme.colors.background,
+          padding: '0.75rem 1rem',
+          borderRadius: '12px',
+          border: `1px solid ${theme.colors.borderStrong}`,
+          display: 'flex',
+          flexDirection: 'row',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          width: '100%',
+          boxSizing: 'border-box',
+      }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+              <span style={{ 
+                  fontSize: '1.5rem', 
+                  fontWeight: 800, 
+                  color: theme.colors.primaryText,
+                  lineHeight: 1,
+              }}>
+                  {value}
+              </span>
+              <span style={{ 
+                  fontWeight: 700, 
+                  color: theme.colors.primaryText, 
+                  fontSize: '1rem' 
+              }}>
+                  {name}
+              </span>
+          </div>
+          
+          <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ 
+                  color: theme.colors.secondaryText, 
+                  fontSize: '0.75rem', 
+                  fontWeight: 600, 
+                  letterSpacing: '0.05em',
+                  textAlign: 'right'
+              }}>
+                  {label}
+              </span>
+               <span style={{ fontSize: '1.25rem', display: 'flex', alignItems: 'center' }}>{icon}</span>
+          </div>
+      </div>
+  );
 
   return (
     <Card title={title}>
@@ -281,13 +386,48 @@ const StreaksWidget: React.FC<StreaksWidgetProps> = ({ matches }) => {
             <div style={styles.recordsGrid}>
                 <StatCard label="📈 Victorias seguidas" value={historicalRecords.longestWinStreak.value} count={historicalRecords.longestWinStreak.count} />
                 <StatCard label="🛡️ Partidos invicto" value={historicalRecords.longestUndefeatedStreak.value} count={historicalRecords.longestUndefeatedStreak.count} />
-                <StatCard label="🔥 Partidos marcando" value={historicalRecords.longestGoalStreak.value} count={historicalRecords.longestGoalStreak.count} />
-                <StatCard label="🧤 Vallas invictas" value={historicalRecords.longestCleanSheetStreak.value} count={historicalRecords.longestCleanSheetStreak.count} />
+                <StatCard label="🔥 Partidos marcando (Eq)" value={historicalRecords.longestGoalStreak.value} count={historicalRecords.longestGoalStreak.count} />
+                <StatCard label="🧤 Vallas invictas (Eq)" value={historicalRecords.longestCleanSheetStreak.value} count={historicalRecords.longestCleanSheetStreak.count} />
                 <StatCard label="📉 Derrotas seguidas" value={historicalRecords.longestLossStreak.value} count={historicalRecords.longestLossStreak.count} />
                 <StatCard label="❌ Partidos sin ganar" value={historicalRecords.longestWinlessStreak.value} count={historicalRecords.longestWinlessStreak.count} />
                 <StatCard label="❄️ Sequía de goles" value={historicalRecords.longestGoalDrought.value} count={historicalRecords.longestGoalDrought.count} />
                 <StatCard label="🔝 Goles en 1 partido" value={historicalRecords.bestGoalPerformance.value} count={historicalRecords.bestGoalPerformance.count} />
             </div>
+            
+            {/* Individual Player Records - Vertical Stack */}
+            {(playerRecords.bestGoalStreak.value > 1 || playerRecords.bestCleanSheetStreak.value > 1 || playerRecords.ironMan.value > 0) && (
+                <div style={{ 
+                    display: 'flex', 
+                    flexDirection: 'column',
+                    gap: theme.spacing.small, 
+                    marginTop: theme.spacing.medium,
+                }}>
+                     {playerRecords.bestGoalStreak.value > 1 && (
+                        <PlayerHighlightCard 
+                            label="Goleador en racha" 
+                            name={playerRecords.bestGoalStreak.name}
+                            value={playerRecords.bestGoalStreak.value} 
+                            icon={<span style={iconStyle}>⚽️🔥</span>} 
+                        />
+                    )}
+                    {playerRecords.bestCleanSheetStreak.value > 1 && (
+                        <PlayerHighlightCard 
+                            label="Arquero imbatible" 
+                            name={playerRecords.bestCleanSheetStreak.name}
+                            value={playerRecords.bestCleanSheetStreak.value} 
+                            icon={<span style={iconStyle}>🧤🔒</span>} 
+                        />
+                    )}
+                    {playerRecords.ironMan.value > 0 && (
+                        <PlayerHighlightCard 
+                            label="Más minutos" 
+                            name={playerRecords.ironMan.name}
+                            value={`${playerRecords.ironMan.value}'`} 
+                            icon={<span style={iconStyle}>⏱️</span>} 
+                        />
+                    )}
+                </div>
+            )}
             </div>
         </div>
       </div>

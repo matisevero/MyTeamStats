@@ -26,7 +26,7 @@ const ConsistencyWidget: React.FC<ConsistencyWidgetProps> = ({ matches }) => {
 
   const years = useMemo(() => {
     const yearSet = new Set(matches.map(m => new Date(m.date).getFullYear()));
-    return Array.from(yearSet).sort((a, b) => b - a);
+    return Array.from(yearSet).sort((a: number, b: number) => b - a);
   }, [matches]);
   const [selectedYear, setSelectedYear] = useState<string | 'all'>('all');
 
@@ -34,8 +34,8 @@ const ConsistencyWidget: React.FC<ConsistencyWidgetProps> = ({ matches }) => {
     if (filteredMatches.length < 2) return 5; // Default score
     const contributions = [...filteredMatches]
       .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime())
-      // Fix: Use nullish coalescing to ensure goals/assists are numbers for the arithmetic operation.
-      .map(m => (m.myGoals ?? 0) + (m.myAssists ?? 0));
+      // FIX: Added nullish coalescing to handle cases where myGoals or myAssists might be undefined, preventing arithmetic errors.
+      .map(m => (Number(m.myGoals) || 0) + (Number(m.myAssists) || 0));
     const stdDev = calculateStandardDeviation(contributions);
     return Math.max(0, 10 - stdDev * 4);
   };
@@ -88,8 +88,8 @@ const ConsistencyWidget: React.FC<ConsistencyWidgetProps> = ({ matches }) => {
       ? matches
       : matches.filter(m => new Date(m.date).getFullYear().toString() === selectedYear);
       
-    // Fix: Use nullish coalescing to ensure goals/assists are numbers for the arithmetic operation.
-    const contributions = filteredMatches.length > 0 ? [...filteredMatches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).map(m => (m.myGoals ?? 0) + (m.myAssists ?? 0)) : [];
+    // FIX: Added nullish coalescing to handle cases where myGoals or myAssists might be undefined, preventing arithmetic errors.
+    const contributions = filteredMatches.length > 0 ? [...filteredMatches].sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()).map(m => (Number(m.myGoals) || 0) + (Number(m.myAssists) || 0)) : [];
 
     return { score: calculateConsistencyForMatches(filteredMatches), contributions };
   }, [matches, selectedYear]);

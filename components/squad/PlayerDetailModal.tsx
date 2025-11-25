@@ -1,11 +1,14 @@
+
 import React, { useMemo, useState, useEffect } from 'react';
 import { createPortal } from 'react-dom';
 import { useTheme } from '../../contexts/ThemeContext';
+import { useData } from '../../contexts/DataContext';
 import { type Match, type SquadPlayerStats, type PlayerProfileData } from '../../types';
 import { CloseIcon } from '../icons/CloseIcon';
 import StatCard from '../StatCard';
 import { ImageIcon } from '../icons/ImageIcon';
 import { StarterStatusIcon } from '../icons/StarterStatusIcon';
+import { PencilIcon } from '../icons/PencilIcon';
 
 interface PlayerDetailModalProps {
   player: SquadPlayerStats;
@@ -17,7 +20,11 @@ interface PlayerDetailModalProps {
 
 const PlayerDetailModal: React.FC<PlayerDetailModalProps> = ({ player, allMatches, profile, onClose, onProfileUpdate }) => {
   const { theme } = useTheme();
+  const { updatePlayerName, isShareMode } = useData();
   const [photoUrlInput, setPhotoUrlInput] = useState(profile?.photoUrl || '');
+  
+  const [isEditingName, setIsEditingName] = useState(false);
+  const [editedName, setEditedName] = useState(player.name);
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -25,9 +32,21 @@ const PlayerDetailModal: React.FC<PlayerDetailModalProps> = ({ player, allMatche
       document.body.style.overflow = 'auto';
     };
   }, []);
+
+  useEffect(() => {
+      setEditedName(player.name);
+  }, [player.name]);
   
   const handlePhotoUpdate = () => {
     onProfileUpdate(player.name, { photoUrl: photoUrlInput });
+  };
+
+  const handleNameSave = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (editedName.trim() && editedName.trim() !== player.name) {
+        updatePlayerName(player.name, editedName.trim());
+    }
+    setIsEditingName(false);
   };
   
   const playerMatches = useMemo(() => 
@@ -73,6 +92,9 @@ const PlayerDetailModal: React.FC<PlayerDetailModalProps> = ({ player, allMatche
       display: 'flex', justifyContent: 'space-between', alignItems: 'center',
       padding: `${theme.spacing.medium} ${theme.spacing.large}`,
       borderBottom: `1px solid ${theme.colors.border}`, flexShrink: 0,
+    },
+    titleContainer: {
+        display: 'flex', alignItems: 'center', gap: theme.spacing.small, flex: 1
     },
     title: { margin: 0, fontSize: theme.typography.fontSize.large, fontWeight: 700, color: theme.colors.primaryText },
     content: {
@@ -127,6 +149,26 @@ const PlayerDetailModal: React.FC<PlayerDetailModalProps> = ({ player, allMatche
     lastMatchRow: { borderBottom: 'none' },
     matchDate: { color: theme.colors.secondaryText, fontSize: theme.typography.fontSize.small },
     matchStats: { display: 'flex', gap: theme.spacing.medium, fontSize: theme.typography.fontSize.small, color: theme.colors.primaryText },
+    editNameInput: {
+        fontSize: theme.typography.fontSize.large,
+        fontWeight: 700,
+        color: theme.colors.primaryText,
+        backgroundColor: theme.colors.background,
+        border: `1px solid ${theme.colors.borderStrong}`,
+        borderRadius: theme.borderRadius.medium,
+        padding: '0.25rem 0.5rem',
+        width: '100%',
+        maxWidth: '250px'
+    },
+    editButton: {
+        background: 'none', border: 'none', cursor: 'pointer', color: theme.colors.secondaryText, padding: '0.25rem', display: 'flex', alignItems: 'center'
+    },
+    saveNameButton: {
+        background: 'none', border: `1px solid ${theme.colors.win}`, color: theme.colors.win, borderRadius: '4px', padding: '2px 8px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer'
+    },
+    cancelNameButton: {
+        background: 'none', border: `1px solid ${theme.colors.border}`, color: theme.colors.secondaryText, borderRadius: '4px', padding: '2px 8px', fontSize: '0.75rem', fontWeight: 'bold', cursor: 'pointer'
+    }
   };
 
   const modalJSX = (
@@ -142,7 +184,30 @@ const PlayerDetailModal: React.FC<PlayerDetailModalProps> = ({ player, allMatche
       <div style={styles.backdrop} onClick={onClose}>
         <div style={styles.modal} onClick={e => e.stopPropagation()}>
           <header style={styles.header}>
-            <h2 style={styles.title}>Perfil de {player.name}</h2>
+            <div style={styles.titleContainer}>
+                {isEditingName ? (
+                    <form onSubmit={handleNameSave} style={{display: 'flex', alignItems: 'center', gap: '0.5rem', width: '100%'}}>
+                        <input 
+                            type="text" 
+                            value={editedName} 
+                            onChange={e => setEditedName(e.target.value)}
+                            style={styles.editNameInput}
+                            autoFocus
+                        />
+                        <button type="submit" style={styles.saveNameButton}>OK</button>
+                        <button type="button" onClick={() => setIsEditingName(false)} style={styles.cancelNameButton}>X</button>
+                    </form>
+                ) : (
+                    <>
+                        <h2 style={styles.title}>Perfil de {player.name}</h2>
+                        {!isShareMode && (
+                            <button onClick={() => setIsEditingName(true)} style={styles.editButton} aria-label="Editar nombre">
+                                <PencilIcon size={16} />
+                            </button>
+                        )}
+                    </>
+                )}
+            </div>
             <button style={{ background: 'none', border: 'none', cursor: 'pointer' }} onClick={onClose}><CloseIcon color={theme.colors.primaryText} /></button>
           </header>
           <div style={styles.content} className="subtle-scrollbar">

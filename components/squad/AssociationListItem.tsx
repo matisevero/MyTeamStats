@@ -1,3 +1,4 @@
+
 import React from 'react';
 import { useTheme } from '../../contexts/ThemeContext';
 import { useData } from '../../contexts/DataContext';
@@ -24,9 +25,9 @@ const AssociationListItem: React.FC<AssociationListItemProps> = ({ rank, pair, i
   const styles: { [key: string]: React.CSSProperties } = {
     container: {
       display: 'grid',
-      gridTemplateColumns: 'auto 20px 1fr auto auto',
+      gridTemplateColumns: '20px 16px 1fr auto',
       alignItems: 'center',
-      gap: theme.spacing.medium,
+      gap: theme.spacing.small,
       padding: `${theme.spacing.small} 0`,
       borderBottom: isLast ? 'none' : `1px solid ${theme.colors.border}`,
       fontSize: '0.875rem',
@@ -42,37 +43,52 @@ const AssociationListItem: React.FC<AssociationListItemProps> = ({ rank, pair, i
     rank: {
       fontWeight: 'bold',
       color: theme.colors.secondaryText,
+      textAlign: 'center',
     },
-    playerNames: {
+    namesContainer: {
+      display: 'flex',
+      flexDirection: 'column',
+      justifyContent: 'center',
+      overflow: 'hidden',
+    },
+    playerName: {
       fontWeight: 600,
       color: theme.colors.primaryText,
       whiteSpace: 'nowrap',
       overflow: 'hidden',
       textOverflow: 'ellipsis',
+      cursor: 'pointer',
+      fontSize: '0.9rem',
     },
-    playerName: {
-        cursor: 'pointer',
+    plusSign: {
+        color: theme.colors.accent2,
+        fontWeight: 700,
+        fontSize: '0.8rem',
+        marginLeft: '2px',
     },
-    statsContainer: {
+    rightSection: {
         display: 'flex',
         flexDirection: 'column',
-        alignItems: 'flex-end',
+        alignItems: 'center',
         gap: '2px',
-    },
-    secondaryStat: {
-      color: theme.colors.secondaryText,
-      fontSize: '0.8rem',
-      fontWeight: 500,
+        minWidth: '70px',
     },
     statBadge: {
       backgroundColor: getImpactColor(pair.impactScore),
       color: theme.colors.textOnAccent,
       fontWeight: 'bold',
-      fontSize: '0.8rem',
+      fontSize: '0.9rem',
       borderRadius: theme.borderRadius.small,
-      padding: `2px ${theme.spacing.small}`,
+      padding: `2px ${theme.spacing.medium}`,
       textAlign: 'center',
-      minWidth: '40px',
+      width: '100%',
+    },
+    statsText: {
+        color: theme.colors.secondaryText,
+        fontSize: '0.65rem',
+        fontWeight: 500,
+        textAlign: 'center',
+        lineHeight: 1.2,
     },
   };
 
@@ -88,18 +104,26 @@ const AssociationListItem: React.FC<AssociationListItemProps> = ({ rank, pair, i
 
   return (
     <div style={styles.container}>
+      <span style={styles.rank}>{rank}.</span>
       <div style={styles.movementIndicator} title={`Movimiento: ${pair.rankMovement}`}>
         {renderMovementIndicator()}
       </div>
-      <span style={styles.rank}>{rank}.</span>
-      <div style={styles.playerNames}>
-        <span style={styles.playerName} onClick={() => setViewingPlayerName(pair.player1)}>{pair.player1}</span> & <span style={styles.playerName} onClick={() => setViewingPlayerName(pair.player2)}>{pair.player2}</span>
+      
+      <div style={styles.namesContainer}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: '4px', width: '100%' }}>
+            <span style={{...styles.playerName, flex: '0 1 auto'}} onClick={() => setViewingPlayerName(pair.player1)}>{pair.player1}</span>
+            <span style={styles.plusSign}>+</span>
+        </div>
+        <span style={styles.playerName} onClick={() => setViewingPlayerName(pair.player2)}>{pair.player2}</span>
       </div>
-      <div style={styles.statsContainer}>
-        <span style={styles.secondaryStat}>{pair.winRate.toFixed(0)}% V</span>
-        <span style={styles.secondaryStat}>{pair.efectividad.toFixed(0)}% Efect.</span>
+
+      <div style={styles.rightSection}>
+        <span style={styles.statBadge}>{pair.impactScore.toFixed(2)}</span>
+        <div style={styles.statsText}>
+            <div>{pair.winRate.toFixed(0)}% Vic</div>
+            <div>{pair.efectividad.toFixed(0)}% Efec</div>
+        </div>
       </div>
-      <span style={styles.statBadge}>{pair.impactScore.toFixed(2)}</span>
     </div>
   );
 };

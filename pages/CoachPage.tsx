@@ -20,6 +20,13 @@ const CoachPage: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 992);
+
+  useEffect(() => {
+    const handleResize = () => setIsDesktop(window.innerWidth >= 992);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   useEffect(() => {
     if (matches.length > 0) {
@@ -67,13 +74,20 @@ const CoachPage: React.FC = () => {
   };
 
   const styles: { [key: string]: React.CSSProperties } = {
-    container: { maxWidth: '1000px', margin: '0 auto', padding: `${theme.spacing.extraLarge} ${theme.spacing.medium}`, display: 'flex', flexDirection: 'column', gap: theme.spacing.extraLarge },
+    container: { maxWidth: '1200px', margin: '0 auto', padding: `${theme.spacing.extraLarge} ${theme.spacing.medium}`, display: 'flex', flexDirection: 'column', gap: theme.spacing.extraLarge },
     pageTitle: {
       fontSize: theme.typography.fontSize.extraLarge, fontWeight: 700, color: theme.colors.primaryText,
       margin: 0, borderLeft: `4px solid ${theme.colors.accent2}`, paddingLeft: theme.spacing.medium,
     },
+    desktopGrid: {
+        display: 'grid',
+        gridTemplateColumns: '1fr 1fr',
+        gap: theme.spacing.extraLarge,
+        alignItems: 'start',
+    },
     chatWindow: {
-      height: '60vh',
+      height: '70vh',
+      minHeight: '500px',
       backgroundColor: theme.colors.surface, borderRadius: theme.borderRadius.large,
       boxShadow: theme.shadows.large, border: `1px solid ${theme.colors.border}`,
       display: 'flex', flexDirection: 'column', overflow: 'hidden',
@@ -100,39 +114,45 @@ const CoachPage: React.FC = () => {
         display: 'flex',
         flexDirection: 'column',
         gap: theme.spacing.medium,
+        maxHeight: '70vh',
+        overflowY: 'auto',
+        paddingRight: '0.5rem',
     },
      errorText: { color: theme.colors.loss, textAlign: 'center', padding: '1rem', backgroundColor: `${theme.colors.loss}20`, borderRadius: theme.borderRadius.medium},
   };
 
-  return (
-    <main style={styles.container}>
-      <h2 style={styles.pageTitle}>Pizarra del Entrenador IA</h2>
-      <div style={styles.chatWindow}>
-        <div style={styles.messagesContainer}>
-          {error && <p style={styles.errorText}>{error}</p>}
-          {messages.map((msg, index) => (
-            <div key={index} style={ msg.role === 'user' ? { ...styles.messageBubble, ...styles.userMessage } : { ...styles.messageBubble, ...styles.modelMessage }}>
-              {msg.text}
+  const chatComponent = (
+    <div>
+        <h2 style={{...styles.pageTitle, marginBottom: theme.spacing.large}}>Pizarra del Entrenador IA</h2>
+        <div style={styles.chatWindow}>
+            <div style={styles.messagesContainer}>
+            {error && <p style={styles.errorText}>{error}</p>}
+            {messages.map((msg, index) => (
+                <div key={index} style={ msg.role === 'user' ? { ...styles.messageBubble, ...styles.userMessage } : { ...styles.messageBubble, ...styles.modelMessage }}>
+                {msg.text}
+                </div>
+            ))}
+            {isLoading && (
+                <div style={{ ...styles.messageBubble, ...styles.modelMessage, display: 'flex', gap: theme.spacing.medium, alignItems: 'center' }}>
+                <Loader /><span>Pensando...</span>
+                </div>
+            )}
+            <div ref={messagesEndRef} />
             </div>
-          ))}
-          {isLoading && (
-            <div style={{ ...styles.messageBubble, ...styles.modelMessage, display: 'flex', gap: theme.spacing.medium, alignItems: 'center' }}>
-              <Loader /><span>Pensando...</span>
-            </div>
-          )}
-          <div ref={messagesEndRef} />
+            <form onSubmit={handleSendMessage} style={styles.inputForm}>
+            <input
+                type="text" value={input} onChange={(e) => setInput(e.target.value)}
+                style={styles.input} placeholder={isShareMode ? "Chat desactivado en modo de solo lectura" : (error ? "Chat no disponible" : "Pregunta sobre el rendimiento del equipo...")} disabled={isLoading || matches.length === 0 || !!error || isShareMode}
+            />
+            <button type="submit" style={styles.button} disabled={isLoading || matches.length === 0 || !!error || isShareMode}>Enviar</button>
+            </form>
         </div>
-        <form onSubmit={handleSendMessage} style={styles.inputForm}>
-          <input
-            type="text" value={input} onChange={(e) => setInput(e.target.value)}
-            style={styles.input} placeholder={isShareMode ? "Chat desactivado en modo de solo lectura" : (error ? "Chat no disponible" : "Pregunta sobre el rendimiento del equipo...")} disabled={isLoading || matches.length === 0 || !!error || isShareMode}
-          />
-          <button type="submit" style={styles.button} disabled={isLoading || matches.length === 0 || !!error || isShareMode}>Enviar</button>
-        </form>
-      </div>
-      
-      <div>
-        <h3 style={{ ...styles.pageTitle, fontSize: '1.5rem' }}>Historial de interacciones con IA</h3>
+    </div>
+  );
+
+  const historyComponent = (
+    <div>
+        <h3 style={{ ...styles.pageTitle, fontSize: '1.5rem', marginBottom: theme.spacing.large }}>Historial de interacciones con IA</h3>
         {aiInteractions.length > 0 ? (
             <div style={styles.historyContainer}>
                 {aiInteractions.map(interaction => (
@@ -145,6 +165,21 @@ const CoachPage: React.FC = () => {
             </p>
         )}
       </div>
+  );
+
+  return (
+    <main style={styles.container}>
+      {isDesktop ? (
+        <div style={styles.desktopGrid}>
+            {chatComponent}
+            {historyComponent}
+        </div>
+      ) : (
+        <>
+            {chatComponent}
+            {historyComponent}
+        </>
+      )}
     </main>
   );
 };

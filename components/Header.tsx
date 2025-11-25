@@ -1,6 +1,8 @@
+
 import React, { useState, useEffect, useCallback } from 'react';
 import { useTheme } from '../contexts/ThemeContext';
 import { useData } from '../contexts/DataContext';
+import { useAuth } from '../contexts/AuthContext';
 import { SunIcon } from './icons/SunIcon';
 import { MoonIcon } from './icons/MoonIcon';
 import { MenuIcon } from './icons/MenuIcon';
@@ -13,10 +15,14 @@ import { ChatBubbleIcon } from './icons/ChatBubbleIcon';
 import { SettingsIcon } from './icons/SettingsIcon';
 import { TableIcon } from './icons/TableIcon';
 import { FootballIcon } from './icons/FootballIcon';
+import { AwardIcon } from './icons/AwardIcon';
+import { LogoutIcon } from './icons/LogoutIcon';
+import { UserIcon } from './icons/UserIcon';
 
 const Header: React.FC = () => {
   const { theme, toggleTheme } = useTheme();
   const { currentPage, setCurrentPage, isShareMode } = useData();
+  const { currentUser, logout } = useAuth();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isAnimatingOut, setIsAnimatingOut] = useState(false);
   const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 992);
@@ -41,10 +47,12 @@ const Header: React.FC = () => {
   const navLinks: { page: Page; label: string; icon: React.ReactNode }[] = [
     { page: 'recorder', label: 'Registro', icon: <ClipboardIcon /> },
     { page: 'stats', label: 'Estadísticas', icon: <BarChartIcon /> },
-    { page: 'table', label: 'Tabla', icon: <TableIcon /> },
+    { page: 'table', label: 'Historial', icon: <TableIcon /> },
     { page: 'squad', label: 'Plantel', icon: <UsersIcon /> },
+    { page: 'progress', label: 'Progreso', icon: <AwardIcon /> },
     { page: 'coach', label: 'Entrenador IA', icon: <ChatBubbleIcon /> },
-    { page: 'settings', label: 'Configuración', icon: <SettingsIcon /> },
+    { page: 'social', label: 'Social', icon: <UserIcon size={20} /> },
+    { page: 'settings', label: 'Ajustes', icon: <SettingsIcon /> },
   ];
 
   const filteredNavLinks = isShareMode ? navLinks.filter(link => link.page !== 'settings' && link.page !== 'recorder') : navLinks;
@@ -56,10 +64,9 @@ const Header: React.FC = () => {
   
   const handleCloseMenu = useCallback(() => {
     setIsAnimatingOut(true);
-    // Use a timer that matches the CSS animation duration
     setTimeout(() => {
         setIsMenuOpen(false);
-    }, 300); // 0.3s animation
+    }, 300); 
   }, []);
 
   const handleNavClick = useCallback((page: Page) => {
@@ -70,7 +77,7 @@ const Header: React.FC = () => {
   const styles: { [key: string]: React.CSSProperties } = {
     header: {
       backgroundColor: theme.colors.surface,
-      padding: '0.5rem 2rem',
+      padding: isDesktop ? '0.5rem 2rem' : '0.5rem 1rem', // Adjusted mobile padding to align with content
       borderBottom: `1px solid ${theme.colors.border}`,
       display: 'flex',
       alignItems: 'center',
@@ -133,6 +140,7 @@ const Header: React.FC = () => {
         gap: '1rem',
     },
     mobileNavButtonActive: { color: theme.colors.primaryText, backgroundColor: theme.colors.borderStrong, fontWeight: 700 },
+    userAvatar: { width: '32px', height: '32px', borderRadius: '50%', marginLeft: '0.5rem' },
   };
 
   return (
@@ -178,6 +186,16 @@ const Header: React.FC = () => {
           )}
           <button onClick={toggleTheme} style={styles.iconButton} aria-label="Cambiar tema">{theme.name === 'dark' ? <SunIcon /> : <MoonIcon />}</button>
           
+          {currentUser && isDesktop && (
+             <button onClick={logout} style={styles.iconButton} aria-label="Cerrar sesión">
+                 <LogoutIcon />
+             </button>
+          )}
+          
+          {currentUser && currentUser.photoURL && (
+              <img src={currentUser.photoURL} alt="User" style={styles.userAvatar} />
+          )}
+
           {!isDesktop && (
             <button onClick={handleOpenMenu} style={styles.iconButton} aria-label="Abrir menú"><MenuIcon color={theme.colors.primaryText} /></button>
           )}
@@ -205,6 +223,13 @@ const Header: React.FC = () => {
                     </button>
                 )
               })}
+              <hr style={{width: '100%', border: `1px solid ${theme.colors.border}`, margin: '1rem 0'}} />
+              {currentUser && (
+                  <button onClick={logout} style={{...styles.mobileNavButton, color: theme.colors.loss}}>
+                      <LogoutIcon />
+                      <span>Cerrar Sesión</span>
+                  </button>
+              )}
             </nav>
           </div>
         </>

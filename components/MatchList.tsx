@@ -1,5 +1,5 @@
 import React from 'react';
-import type { Match, PlayerPerformance } from '../types';
+import type { Match, PlayerPerformance, Incident } from '../types';
 import { MatchSortByType } from '../types';
 import MatchCard from './MatchCard';
 import { FootballIcon } from './icons/FootballIcon';
@@ -12,12 +12,12 @@ interface MatchListProps {
   allTournaments: string[];
   onDeleteMatch?: (matchId: string) => void;
   onEditMatch?: (matchId: string) => void;
-  onUpdateMatchPlayers?: (matchId: string, players: PlayerPerformance[], tournament: string) => void;
+  onUpdateMatchDetails?: (matchId: string, players: PlayerPerformance[], tournament: string, incidents: Incident[]) => void;
   isReadOnly?: boolean;
   sortBy?: MatchSortByType;
 }
 
-const MatchList: React.FC<MatchListProps> = ({ matches, allMatches, allPlayers, allTournaments, onDeleteMatch, onEditMatch, onUpdateMatchPlayers, isReadOnly = false, sortBy }) => {
+const MatchList: React.FC<MatchListProps> = ({ matches, allMatches, allPlayers, allTournaments, onDeleteMatch, onEditMatch, onUpdateMatchDetails, isReadOnly = false, sortBy }) => {
   const { theme } = useTheme();
 
   const styles: { [key: string]: React.CSSProperties } = {
@@ -73,7 +73,7 @@ const MatchList: React.FC<MatchListProps> = ({ matches, allMatches, allPlayers, 
               allTournaments={allTournaments}
               onDelete={onDeleteMatch ? () => onDeleteMatch(match.id) : undefined}
               onEdit={onEditMatch ? () => onEditMatch(match.id) : undefined}
-              onUpdateMatchPlayers={onUpdateMatchPlayers}
+              onUpdateMatchDetails={onUpdateMatchDetails}
               isReadOnly={isReadOnly}
               sortBy={sortBy}
             />

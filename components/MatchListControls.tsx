@@ -1,6 +1,6 @@
 import React from 'react';
 import { useTheme } from '../contexts/ThemeContext';
-import { MatchSortByType } from '../types';
+import { MatchSortByType, TournamentSettings } from '../types';
 
 interface MatchListControlsProps {
   resultFilter: 'ALL' | 'VICTORIA' | 'DERROTA' | 'EMPATE';
@@ -11,7 +11,7 @@ interface MatchListControlsProps {
   allTournaments: string[];
   tournamentFilter: string;
   setTournamentFilter: (filter: string) => void;
-  tournamentStyles: Record<string, { icon: string; color: string; }>;
+  tournamentSettings: Record<string, TournamentSettings>;
 }
 
 const resultAbbreviations: Record<'VICTORIA' | 'DERROTA' | 'EMPATE' | 'ALL', string> = {
@@ -30,7 +30,7 @@ const MatchListControls: React.FC<MatchListControlsProps> = ({
   allTournaments,
   tournamentFilter,
   setTournamentFilter,
-  tournamentStyles,
+  tournamentSettings,
 }) => {
   const { theme } = useTheme();
 
@@ -132,7 +132,7 @@ const MatchListControls: React.FC<MatchListControlsProps> = ({
           <select value={tournamentFilter} onChange={e => setTournamentFilter(e.target.value)} style={styles.select}>
             <option value="ALL">Todos los torneos</option>
             {allTournaments.map(tournament => {
-              const style = tournamentStyles[tournament];
+              const style = tournamentSettings[tournament];
               const icon = style ? `${style.icon} ` : '';
               return (
                 <option key={tournament} value={tournament}>{icon}{tournament}</option>

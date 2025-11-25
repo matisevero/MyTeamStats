@@ -6,7 +6,7 @@ import Card from '../components/common/Card';
 
 const OnboardingPage: React.FC = () => {
   const { theme } = useTheme();
-  const { completeOnboarding } = useData();
+  const { completeOnboarding, setCurrentPage } = useData();
   const [teamName, setTeamName] = useState('');
 
   const handleStart = (startOption: 'fresh' | 'examples') => {
@@ -86,6 +86,15 @@ const OnboardingPage: React.FC = () => {
       color: theme.colors.secondaryText,
       border: `1px solid ${theme.colors.borderStrong}`,
     },
+    loginLink: {
+        color: theme.colors.accent2,
+        cursor: 'pointer',
+        textDecoration: 'underline',
+        background: 'none',
+        border: 'none',
+        fontSize: '0.9rem',
+        marginTop: '0.5rem',
+    }
   };
 
   return (
@@ -122,6 +131,10 @@ const OnboardingPage: React.FC = () => {
               Empezar desde cero
             </button>
           </div>
+          
+          <button onClick={() => setCurrentPage('login')} style={styles.loginLink}>
+              ¿Ya tienes una cuenta? Entrar
+          </button>
         </div>
       </Card>
     </div>

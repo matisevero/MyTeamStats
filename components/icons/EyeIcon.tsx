@@ -1,6 +1,6 @@
 import React from 'react';
 
-export const AwardIcon: React.FC<{ size?: number; color?: string }> = ({ size = 24, color = 'currentColor' }) => (
+export const EyeIcon: React.FC<{ size?: number; color?: string }> = ({ size = 20, color = 'currentColor' }) => (
   <svg
     xmlns="http://www.w3.org/2000/svg"
     width={size}
@@ -12,7 +12,7 @@ export const AwardIcon: React.FC<{ size?: number; color?: string }> = ({ size = 
     strokeLinecap="round"
     strokeLinejoin="round"
   >
-    <circle cx="12" cy="8" r="7" />
-    <polyline points="8.21 13.89 7 22 12 17 17 22 15.79 13.88" />
+    <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"></path>
+    <circle cx="12" cy="12" r="3"></circle>
   </svg>
 );

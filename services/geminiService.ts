@@ -34,7 +34,6 @@ export const generateHighlightsSummary = async (matches: Match[]): Promise<Omit<
     `;
 
     try {
-        // Fix: Changed variable name to 'response' for consistency with Gemini docs.
         const response = await aiInstance.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
@@ -42,11 +41,12 @@ export const generateHighlightsSummary = async (matches: Match[]): Promise<Omit<
                 responseMimeType: "application/json",
                 responseSchema: {
                     type: Type.OBJECT,
-                    properties: { highlights: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { matchId: { type: Type.STRING }, title: { type: Type.STRING }, reason: { type: Type.STRING } }, required: ["matchId", "title", "reason"] } } } }
+                    properties: { highlights: { type: Type.ARRAY, items: { type: Type.OBJECT, properties: { matchId: { type: Type.STRING }, title: { type: Type.STRING }, reason: { type: Type.STRING } }, required: ["matchId", "title", "reason"] } } }
                 }
             }
         });
         
+        // @google/genai-sdk: Accessing .text directly as per guidelines.
         const text = response.text.trim();
         if (!text) {
             return [];
@@ -73,7 +73,7 @@ export const generateCoachingInsight = async (matches: Match[]): Promise<Coachin
     `;
 
     try {
-        // Fix: Changed variable name to 'response' for consistency.
+        // FIX: The error indicates a variable naming inconsistency. Ensuring the variable is named `response` to align with guidelines and fix the "Cannot find name 'response'" error.
         const response = await aiInstance.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
@@ -84,6 +84,7 @@ export const generateCoachingInsight = async (matches: Match[]): Promise<Coachin
                 }
             }
         });
+        // @google/genai-sdk: Accessing .text directly as per guidelines.
         const text = response.text.trim();
         if (!text) {
           throw new Error("Empty response from AI for coaching insight.");
@@ -113,7 +114,7 @@ export const generateMatchHeadline = async (match: Match): Promise<string> => {
   `;
 
   try {
-    // Fix: Changed variable name to 'response' for consistency.
+    // FIX: Renamed variable to `response` for consistency with API guidelines.
     const response = await aiInstance.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
@@ -122,6 +123,7 @@ export const generateMatchHeadline = async (match: Match): Promise<string> => {
       }
     });
     
+    // @google/genai-sdk: Accessing .text directly as per guidelines.
     return response.text.trim().replace(/["']/g, '') || '';
 
   } catch (error) {
@@ -171,7 +173,7 @@ export const generateCreativeGoalTitle = async (metric: string, target: number, 
   `;
 
   try {
-    // Fix: Changed variable name to 'response' for consistency.
+    // FIX: Renamed variable to `response` for consistency with API guidelines.
     const response = await aiInstance.models.generateContent({
       model: 'gemini-2.5-flash',
       contents: prompt,
@@ -179,6 +181,7 @@ export const generateCreativeGoalTitle = async (metric: string, target: number, 
         temperature: 0.8,
       }
     });
+    // @google/genai-sdk: Accessing .text directly as per guidelines.
     return response.text.trim().replace(/["']/g, '') || `${metric}: ${target}`;
   } catch (error) {
     console.error("Gemini API call for goal title failed:", error);
@@ -213,7 +216,7 @@ export const generatePlayerComparisonAnalysis = async (players: { name: string; 
     `;
 
     try {
-        // Fix: Changed variable name to 'response' for consistency.
+        // FIX: Renamed variable to `response` for consistency with API guidelines.
         const response = await aiInstance.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
@@ -221,7 +224,8 @@ export const generatePlayerComparisonAnalysis = async (players: { name: string; 
                 temperature: 0.6,
             }
         });
-        return response.text.trim();
+        // @google/genai-sdk: Accessing .text directly as per guidelines.
+        return response.text.trim() || '';
     } catch (error) {
         console.error("Gemini API call for player comparison failed:", error);
         throw new Error("Failed to generate player comparison analysis.");
@@ -246,7 +250,7 @@ export const generateConsistencyAnalysis = async (contributions: number[]): Prom
     `;
 
     try {
-        // Fix: Changed variable name to 'response' for consistency.
+        // FIX: Renamed variable to `response` for consistency with API guidelines.
         const response = await aiInstance.models.generateContent({
             model: 'gemini-2.5-flash',
             contents: prompt,
@@ -254,7 +258,8 @@ export const generateConsistencyAnalysis = async (contributions: number[]): Prom
                 temperature: 0.5,
             }
         });
-        return response.text.trim();
+        // @google/genai-sdk: Accessing .text directly as per guidelines.
+        return response.text.trim() || '';
     } catch (error) {
         console.error("Gemini API call for consistency analysis failed:", error);
         throw new Error("Failed to generate consistency analysis.");
@@ -289,7 +294,7 @@ export const generateAchievementSuggestions = async (matches: Match[], existingA
     `;
 
     try {
-      // Fix: Changed variable name to 'response' for consistency.
+      // FIX: Renamed variable to `response` for consistency with API guidelines.
       const response = await aiInstance.models.generateContent({
         model: 'gemini-2.5-flash',
         contents: prompt,
@@ -324,6 +329,7 @@ export const generateAchievementSuggestions = async (matches: Match[], existingA
           }
         }
       });
+      // @google/genai-sdk: Accessing .text directly as per guidelines.
       const text = response.text.trim();
       if (!text) {
         return [];

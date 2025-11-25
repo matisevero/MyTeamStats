@@ -1,5 +1,6 @@
-import React, { useState, useMemo } from 'react';
-import type { Match, MatchSortByType, PlayerPerformance } from '../types';
+
+import React, { useState, useMemo, useEffect } from 'react';
+import type { Match, MatchSortByType, PlayerPerformance, Incident } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { useData } from '../contexts/DataContext';
 import { ChevronIcon } from './icons/ChevronIcon';
@@ -9,6 +10,8 @@ import AutocompleteInput from './AutocompleteInput';
 import MatchFormIndicator from './MatchFormIndicator';
 import { ShareIcon } from './icons/ShareIcon';
 import { StarterStatusIcon } from './icons/StarterStatusIcon';
+import { CardIcon } from './icons/CardIcon';
+import { StatStepper } from './StatStepper';
 
 interface MatchCardProps {
   match: Match;
@@ -17,7 +20,7 @@ interface MatchCardProps {
   allTournaments: string[];
   onDelete?: () => void;
   onEdit?: () => void;
-  onUpdateMatchPlayers?: (matchId: string, players: PlayerPerformance[], tournament: string) => void;
+  onUpdateMatchDetails?: (matchId: string, players: PlayerPerformance[], tournament: string, incidents: Incident[]) => void;
   isReadOnly?: boolean;
   sortBy?: MatchSortByType;
 }
@@ -28,15 +31,17 @@ const resultAbbreviations: Record<'VICTORIA' | 'DERROTA' | 'EMPATE', string> = {
   EMPATE: 'E',
 };
 
-const MatchCard: React.FC<MatchCardProps> = ({ match, allMatches, allPlayers, allTournaments, onDelete, onEdit, onUpdateMatchPlayers, isReadOnly = false, sortBy }) => {
+const MatchCard: React.FC<MatchCardProps> = ({ match, allMatches, allPlayers, allTournaments, onDelete, onEdit, onUpdateMatchDetails, isReadOnly = false, sortBy }) => {
   const { theme } = useTheme();
-  const { tournamentStyles, setViewingPlayerName } = useData();
-  const { result, teamName, opponentName, teamScore, opponentScore, date, tournament, notes, players } = match;
+  const { tournamentSettings, setViewingPlayerName, playerProfiles } = useData();
+  const { result, teamName, opponentName, teamScore, opponentScore, date, tournament, notes, players, incidents } = match;
   const [isExpanded, setIsExpanded] = useState(false);
   const [isEditingPlayers, setIsEditingPlayers] = useState(false);
   const [teamPlayers, setTeamPlayers] = useState<PlayerPerformance[]>([]);
+  const [editingIncidents, setEditingIncidents] = useState<Incident[]>([]);
   const [editingTournament, setEditingTournament] = useState('');
   const [shareStatus, setShareStatus] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle');
+  const [editingMinuteIndex, setEditingMinuteIndex] = useState<number | null>(null);
 
   const matchForm = useMemo(() => {
     const currentTournament = match.tournament;
@@ -58,6 +63,43 @@ const MatchCard: React.FC<MatchCardProps> = ({ match, allMatches, allPlayers, al
     // 5. Map to just the results
     return formMatches.map(m => m.result);
   }, [match.id, match.tournament, allMatches]);
+  
+  // Auto-calculate minutes in edit mode
+  useEffect(() => {
+      if (isEditingPlayers && editingIncidents.length > 0) {
+          const matchDuration = (editingTournament && tournamentSettings[editingTournament]?.matchDuration) || 90;
+          
+          setTeamPlayers(currentPlayers => {
+              let updatedPlayers = [...currentPlayers];
+              let changed = false;
+
+              editingIncidents.forEach(inc => {
+                  if (inc.type === 'substitution' && inc.playerName && inc.playerIn && inc.minute) {
+                      // Find Player OUT
+                      const playerOutIndex = updatedPlayers.findIndex(p => p.name.trim().toLowerCase() === inc.playerName.trim().toLowerCase());
+                      if (playerOutIndex !== -1) {
+                          if (updatedPlayers[playerOutIndex].minutesPlayed !== inc.minute) {
+                            updatedPlayers[playerOutIndex] = { ...updatedPlayers[playerOutIndex], minutesPlayed: inc.minute };
+                            changed = true;
+                          }
+                      }
+
+                      // Find Player IN
+                      const playerInIndex = updatedPlayers.findIndex(p => p.name.trim().toLowerCase() === inc.playerIn?.trim().toLowerCase());
+                      if (playerInIndex !== -1) {
+                           const minutesIn = Math.max(0, matchDuration - inc.minute);
+                           if (updatedPlayers[playerInIndex].minutesPlayed !== minutesIn) {
+                                updatedPlayers[playerInIndex] = { ...updatedPlayers[playerInIndex], minutesPlayed: minutesIn };
+                                changed = true;
+                           }
+                      }
+                  }
+              });
+              
+              return changed ? updatedPlayers : currentPlayers;
+          });
+      }
+  }, [editingIncidents, editingTournament, tournamentSettings, isEditingPlayers]);
 
   const handleShare = async () => {
     setShareStatus('copying');
@@ -119,21 +161,25 @@ ${playerStats}`;
 
   const handleEditPlayersClick = () => {
     setTeamPlayers(match.players || []);
+    setEditingIncidents(match.incidents?.map(inc => ({...inc})) || []);
     setEditingTournament(match.tournament || '');
     setIsEditingPlayers(true);
   };
 
   const handleCancelEditPlayers = () => {
     setIsEditingPlayers(false);
+    setEditingMinuteIndex(null);
   };
   
   const handleSavePlayers = (e: React.FormEvent) => {
     e.preventDefault();
-    if (onUpdateMatchPlayers) {
+    if (onUpdateMatchDetails) {
         const finalTeamPlayers = teamPlayers.map(p => ({ ...p, name: p.name.trim() })).filter(p => p.name);
-        onUpdateMatchPlayers(match.id, finalTeamPlayers, editingTournament);
+        const finalIncidents = editingIncidents.map(i => ({...i, playerName: i.playerName.trim(), playerIn: i.playerIn?.trim()})).filter(i => i.playerName);
+        onUpdateMatchDetails(match.id, finalTeamPlayers, editingTournament, finalIncidents);
     }
     setIsEditingPlayers(false);
+    setEditingMinuteIndex(null);
   };
 
   const handlePlayerInputChange = (index: number, field: 'name' | 'goals' | 'assists' | 'minutesPlayed', value: string | number) => {
@@ -170,9 +216,50 @@ ${playerStats}`;
     });
   };
   
+  const handleTogglePlayerCard = (index: number) => {
+    setTeamPlayers(currentPlayers => {
+        const newPlayers = [...currentPlayers];
+        const currentCard = newPlayers[index].card;
+        let newCard: PlayerPerformance['card'];
+        
+        switch (currentCard) {
+            case undefined: newCard = 'yellow'; break;
+            case 'yellow': newCard = 'double_yellow'; break;
+            case 'double_yellow': newCard = 'red'; break;
+            case 'red': newCard = 'blue'; break;
+            case 'blue': newCard = undefined; break;
+            default: newCard = undefined;
+        }
+        
+        newPlayers[index] = { ...newPlayers[index], card: newCard };
+        return newPlayers;
+    });
+  };
+  
   const handleAddPlayerInput = () => {
     setTeamPlayers(currentPlayers => [...currentPlayers, { name: '', goals: 0, assists: 0, minutesPlayed: 90, status: 'starter' }]);
   };
+
+  const handleRemovePlayerInput = (index: number) => {
+    setTeamPlayers(currentPlayers => currentPlayers.filter((_, i) => i !== index));
+  };
+  
+  const handleAddIncident = () => {
+    setEditingIncidents(prev => [...prev, { id: Date.now().toString(), type: 'substitution', playerName: '', playerIn: '', minute: 0 }]);
+  };
+
+  const handleRemoveIncident = (index: number) => {
+    setEditingIncidents(prev => prev.filter((_, i) => i !== index));
+  };
+  
+  const handleIncidentChange = (index: number, field: 'type' | 'playerName' | 'playerIn' | 'minute', value: string | number) => {
+    setEditingIncidents(prev => {
+        const newIncidents = [...prev];
+        newIncidents[index] = { ...newIncidents[index], [field]: value };
+        return newIncidents;
+    });
+  };
+
 
   const getBorderColorFromResult = (result: 'VICTORIA' | 'DERROTA' | 'EMPATE'): string => {
     switch (result) {
@@ -182,11 +269,15 @@ ${playerStats}`;
     }
   };
 
-  const tournamentStyle = tournament ? tournamentStyles[tournament] : null;
+  const tournamentStyle = tournament ? tournamentSettings[tournament] : null;
   const truncateName = (name: string, length: number = 30): string => {
       if (!name) return '';
       return name.length > length ? `${name.substring(0, length)}...` : name;
   };
+  
+  const usedPlayerNames = useMemo(() => {
+      return new Set(teamPlayers.map(p => p.name.trim().toLowerCase()).filter(n => n));
+  }, [teamPlayers]);
 
   const dateObj = new Date(date);
   const day = dateObj.getUTCDate();
@@ -201,8 +292,9 @@ ${playerStats}`;
     },
     mainInfoRow: {
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
-        padding: `${theme.spacing.medium} ${theme.spacing.large}`,
-        gap: theme.spacing.medium,
+        // Reduced padding for better mobile fit
+        padding: `${theme.spacing.medium} ${theme.spacing.medium}`,
+        gap: theme.spacing.small,
     },
     toggleRow: {
         display: 'flex', justifyContent: 'space-between', alignItems: 'center',
@@ -276,7 +368,9 @@ ${playerStats}`;
       fontWeight: 600,
     },
     cardBody: {
-      padding: theme.spacing.large, paddingTop: theme.spacing.medium,
+      // Reduced padding for mobile fit
+      padding: theme.spacing.medium,
+      paddingTop: theme.spacing.small,
     },
     actionsContainer: {
       display: 'flex', justifyContent: 'flex-end', alignItems: 'center',
@@ -373,17 +467,94 @@ ${playerStats}`;
     },
     playerInputRow: {
         display: 'flex',
-        gap: theme.spacing.small,
+        gap: '2px',
         alignItems: 'center',
     },
-    statInput: {
-        width: '40px',
-        padding: '0.3rem',
-        textAlign: 'center' as 'center',
+    minutesInputContainer: {
+        display: 'flex',
+        alignItems: 'center',
         backgroundColor: theme.colors.background,
         border: `1px solid ${theme.colors.borderStrong}`,
-        borderRadius: theme.borderRadius.medium,
-        color: theme.colors.primaryText
+        borderRadius: theme.borderRadius.small,
+        height: '30px',
+        padding: '0 1px',
+        width: '28px',
+        justifyContent: 'center',
+        flexShrink: 0,
+    },
+    minutesInput: {
+        width: '100%',
+        height: '100%',
+        border: 'none',
+        background: 'transparent',
+        color: theme.colors.primaryText,
+        fontSize: '0.7rem',
+        textAlign: 'center',
+        padding: 0,
+        outline: 'none',
+        fontWeight: 600,
+    },
+    minutesDisplay: {
+        width: '100%',
+        height: '100%',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        fontSize: '0.7rem',
+        fontWeight: 600,
+        color: theme.colors.primaryText,
+        cursor: 'pointer',
+    },
+    starterToggleButton: {
+        background: 'none',
+        border: 'none',
+        color: theme.colors.secondaryText,
+        width: '20px',
+        height: '20px',
+        borderRadius: '50%',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 0,
+        flexShrink: 0,
+    },
+    cardToggleButton: {
+        background: 'none',
+        border: 'none',
+        color: theme.colors.secondaryText,
+        width: '24px',
+        height: '24px',
+        borderRadius: '50%',
+        cursor: 'pointer',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 0,
+        flexShrink: 0,
+    },
+     removeButton: {
+        background: 'none',
+        border: `1px solid ${theme.colors.loss}80`,
+        color: theme.colors.loss,
+        width: '20px',
+        height: '20px',
+        borderRadius: '50%',
+        cursor: 'pointer',
+        fontSize: '0.9rem',
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        padding: 0,
+        lineHeight: 1,
+        flexShrink: 0,
+        marginLeft: '2px',
+    },
+    input: {
+        width: '100%', padding: theme.spacing.medium, backgroundColor: theme.colors.background,
+        border: `1px solid ${theme.colors.borderStrong}`, borderRadius: theme.borderRadius.medium, 
+        color: theme.colors.primaryText, fontSize: theme.typography.fontSize.medium, outline: 'none', 
+        transition: 'border-color 0.2s, background-color 0.2s',
     },
   };
   
@@ -401,6 +572,13 @@ ${playerStats}`;
   } else if (shareStatus === 'copying') {
       shareButtonStyle.opacity = 0.7;
   }
+
+  const getIncidentText = (incident: Incident) => {
+      if (incident.type === 'penal_atajado') return 'Penal Atajado';
+      if (incident.type === 'penal_errado') return 'Penal Errado';
+      if (incident.type === 'substitution') return `Cambio (${incident.minute}')`;
+      return 'Incidencia';
+  };
 
   return (
     <div style={styles.card}>
@@ -468,29 +646,58 @@ ${playerStats}`;
                   {!isEditingPlayers ? (
                       <div>
                           <div style={styles.playersHeader}>
-                              <h4 style={styles.sectionHeading}><TeamIcon /> Jugadores del Partido</h4>
+                              <h4 style={styles.sectionHeading}><TeamIcon /> Detalles del Partido</h4>
                               <button onClick={handleEditPlayersClick} style={{...styles.actionButton, ...styles.editButton, margin: 0}}>
-                                  { (match.players?.length || match.tournament) ? 'Editar' : '+ Añadir Info'}
+                                  { (match.players?.length || match.tournament || match.incidents?.length) ? 'Editar' : '+ Añadir Info'}
                               </button>
                           </div>
+                          {incidents && incidents.length > 0 && (
+                            <div style={{marginBottom: theme.spacing.medium}}>
+                                <h5 style={styles.teamLabel}>Incidencias</h5>
+                                <ul style={styles.playerList}>
+                                    {incidents.map((incident) => (
+                                        <li key={incident.id} style={styles.playerListItem}>
+                                            {incident.type === 'substitution' ? (
+                                                 <div style={{display: 'flex', flexDirection: 'column', width: '100%'}}>
+                                                     <div style={{fontWeight: 600, color: theme.colors.secondaryText, marginBottom: '4px'}}>🔄 Min {incident.minute}'</div>
+                                                     <div style={{display: 'flex', gap: theme.spacing.medium}}>
+                                                         <span style={{color: theme.colors.loss, fontSize: '0.9rem'}}>⬇️ {incident.playerName}</span>
+                                                         <span style={{color: theme.colors.win, fontSize: '0.9rem'}}>⬆️ {incident.playerIn}</span>
+                                                     </div>
+                                                 </div>
+                                            ) : (
+                                                <>
+                                                    <span>{getIncidentText(incident)}</span>
+                                                    <span style={{fontWeight: 600}}>{incident.playerName}</span>
+                                                </>
+                                            )}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                          )}
                           {(match.players?.length) ? (
                               <div style={styles.playersGrid}>
                                   <div>
                                       <h5 style={styles.teamLabel}>{teamName || 'Nuestro Equipo'}</h5>
                                       <ul style={styles.playerList}>
-                                          {players.map((player, index) => (
+                                          {players.map((player, index) => {
+                                            const jerseyNumber = playerProfiles[player.name]?.jerseyNumber;
+                                            return (
                                               <li key={index} style={styles.playerListItem}>
                                                 <div style={{ display: 'flex', alignItems: 'center', gap: theme.spacing.small }}>
                                                     <StarterStatusIcon status={player.status} />
+                                                    {jerseyNumber && <span style={{fontWeight: 700, color: theme.colors.secondaryText, fontSize: '0.8rem', minWidth: '18px', textAlign: 'center'}}>{jerseyNumber}</span>}
                                                     <span style={styles.playerName} onClick={() => setViewingPlayerName(player.name)}>{player.name}</span>
                                                 </div>
-                                                <div>
+                                                <div style={{display: 'flex', alignItems: 'center', gap: theme.spacing.small}}>
+                                                  {player.card && <CardIcon card={player.card} size={18} />}
                                                   {player.goals > 0 && <span style={styles.playerStatBadge}>⚽️ {player.goals}</span>}
                                                   {player.assists > 0 && <span style={styles.playerStatBadge}>👟 {player.assists}</span>}
-                                                  {player.minutesPlayed && player.minutesPlayed > 0 && <span style={styles.playerStatBadge}>⏱️ {player.minutesPlayed}'</span>}
+                                                  {player.minutesPlayed !== undefined && <span style={styles.playerStatBadge}>⏱️ {player.minutesPlayed}</span>}
                                                 </div>
                                               </li>
-                                          ))}
+                                          )})}
                                           {players.length === 0 && <li style={{...styles.playerListItem, color: theme.colors.secondaryText, fontStyle: 'italic'}}>No hay jugadores</li>}
                                       </ul>
                                   </div>
@@ -511,28 +718,157 @@ ${playerStats}`;
                                 suggestions={allTournaments}
                             />
                           </div>
+                          
                           <div style={styles.playersGrid}>
                               <div>
                                   <div style={styles.teamHeader}>
                                       <h5 style={styles.teamLabel}>{teamName || 'Nuestro Equipo'}</h5>
                                   </div>
-                                  {teamPlayers.map((player, index) => (
-                                    <div key={`mine-${index}`} style={styles.playerInputContainer}>
-                                        <div style={styles.playerInputRow}>
-                                            <button type="button" onClick={() => handleTogglePlayerStatus(index)} style={{ background: 'none', border: 'none', cursor: 'pointer', padding: 0 }}>
-                                                <StarterStatusIcon status={player.status} />
-                                            </button>
-                                          <div style={{flex: 1}}><AutocompleteInput placeholder={`Jugador ${index + 1}`} value={player.name} onChange={(value) => handlePlayerInputChange(index, 'name', value)} suggestions={allPlayers}/></div>
-                                          <input type="number" min="0" value={player.goals} onChange={e => handlePlayerInputChange(index, 'goals', e.target.value)} style={styles.statInput} aria-label={`Goles de ${player.name || 'compañero'}`} />
-                                          <input type="number" min="0" value={player.assists} onChange={e => handlePlayerInputChange(index, 'assists', e.target.value)} style={styles.statInput} aria-label={`Asistencias de ${player.name || 'compañero'}`} />
-                                          <input type="number" min="0" max="120" value={player.minutesPlayed ?? 90} onChange={e => handlePlayerInputChange(index, 'minutesPlayed', e.target.value)} style={styles.statInput} aria-label={`Minutos de ${player.name || 'compañero'}`} />
+                                  <div style={{display: 'flex', alignItems: 'center', gap: '2px', marginBottom: theme.spacing.small}}>
+                                    <span style={{fontSize: '8px', color: theme.colors.secondaryText, width: '20px', textAlign: 'center'}}>Tit</span>
+                                    <div style={{flex: 1}} /> {/* Spacer for player name */}
+                                    <span style={{fontSize: '8px', color: theme.colors.secondaryText, width: '24px', textAlign: 'center'}}>Tarj</span>
+                                    <div style={{width: '34px'}}></div> {/* Spacer for Goals */}
+                                    <div style={{width: '34px'}}></div> {/* Spacer for Assists */}
+                                    <span style={{fontSize: '8px', color: theme.colors.secondaryText, width: '28px', textAlign: 'center'}}>Min</span>
+                                    <div style={{width: '22px'}}></div> {/* Spacer for Delete */}
+                                  </div>
+                                  {teamPlayers.map((player, index) => {
+                                      const availablePlayers = allPlayers.filter(p => 
+                                          !usedPlayerNames.has(p.toLowerCase()) || p.toLowerCase() === player.name.trim().toLowerCase()
+                                      );
+
+                                      return (
+                                        <div key={`mine-${index}`} style={styles.playerInputContainer}>
+                                            <div style={styles.playerInputRow}>
+                                                <button type="button" onClick={() => handleTogglePlayerStatus(index)} style={styles.starterToggleButton}>
+                                                    <StarterStatusIcon status={player.status} size={14} />
+                                                </button>
+                                                {/* Jersey Input Removed */}
+                                                <div style={{flex: 1, minWidth: '80px'}}>
+                                                  <AutocompleteInput 
+                                                    placeholder={`Jugador ${index + 1}`} 
+                                                    value={player.name} 
+                                                    onChange={(value) => handlePlayerInputChange(index, 'name', value)} 
+                                                    suggestions={availablePlayers}
+                                                  />
+                                                </div>
+                                                <button type="button" onClick={() => handleTogglePlayerCard(index)} style={styles.cardToggleButton}>
+                                                    <CardIcon card={player.card} size={18} />
+                                                </button>
+                                                <StatStepper 
+                                                    value={player.goals} 
+                                                    onChange={(val) => handlePlayerInputChange(index, 'goals', val)} 
+                                                    activeColor={theme.colors.accent1}
+                                                    label={`Goles de ${player.name}`}
+                                                    icon="⚽️"
+                                                />
+                                                <StatStepper 
+                                                    value={player.assists} 
+                                                    onChange={(val) => handlePlayerInputChange(index, 'assists', val)} 
+                                                    activeColor={theme.colors.accent2} 
+                                                    label={`Asistencias de ${player.name}`}
+                                                    icon="👟"
+                                                />
+                                                <div style={styles.minutesInputContainer} title={`Minutos de ${player.name || 'jugador'}`}>
+                                                    {editingMinuteIndex === index ? (
+                                                        <input 
+                                                            type="number" 
+                                                            min="0" 
+                                                            max="120" 
+                                                            value={player.minutesPlayed ?? 90} 
+                                                            onChange={e => handlePlayerInputChange(index, 'minutesPlayed', e.target.value)} 
+                                                            onBlur={() => setEditingMinuteIndex(null)}
+                                                            autoFocus
+                                                            style={styles.minutesInput} 
+                                                            placeholder="Min" 
+                                                        />
+                                                    ) : (
+                                                        <div style={styles.minutesDisplay} onClick={() => setEditingMinuteIndex(index)}>
+                                                            {player.minutesPlayed ?? 90}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                                <button type="button" onClick={() => handleRemovePlayerInput(index)} style={styles.removeButton} aria-label={`Eliminar jugador ${index + 1}`}>&times;</button>
+                                            </div>
                                         </div>
-                                    </div>
-                                  ))}
+                                      );
+                                  })}
                                   <button type="button" onClick={() => handleAddPlayerInput()} style={styles.addPlayerButton}>+ JUGADOR</button>
                               </div>
                           </div>
-                          <div style={{display: 'flex', justifyContent: 'flex-end', gap: theme.spacing.medium, marginTop: theme.spacing.small}}>
+
+                           <div style={{marginTop: theme.spacing.large, borderTop: `1px solid ${theme.colors.border}`, paddingTop: theme.spacing.medium}}>
+                                <h5 style={styles.teamLabel}>Incidencias</h5>
+                                {editingIncidents.map((incident, index) => (
+                                    <div key={index} style={{...styles.playerInputRow, marginBottom: theme.spacing.small, alignItems: 'flex-start'}}>
+                                        <div style={{flex: 1, display: 'flex', gap: theme.spacing.small, flexDirection: 'column'}}>
+                                            <div style={{display: 'flex', gap: theme.spacing.small}}>
+                                                <select
+                                                    value={incident.type}
+                                                    onChange={(e) => handleIncidentChange(index, 'type', e.target.value)}
+                                                    style={{...styles.minutesInput, width: 'auto', flex: 1, padding: '0.3rem', fontSize: '0.8rem', border: `1px solid ${theme.colors.borderStrong}`, borderRadius: theme.borderRadius.medium}}
+                                                >
+                                                    <option value="substitution">Cambio 🔄</option>
+                                                    <option value="penal_errado">Penal Errado</option>
+                                                    <option value="penal_atajado">Penal Atajado</option>
+                                                </select>
+                                                {incident.type === 'substitution' && (
+                                                    <div style={{...styles.minutesInputContainer, width: '40px'}} title="Minuto del cambio">
+                                                        <input
+                                                            type="number"
+                                                            min="0"
+                                                            max="120"
+                                                            value={incident.minute || ''}
+                                                            onChange={(e) => handleIncidentChange(index, 'minute', parseInt(e.target.value) || 0)}
+                                                            style={styles.minutesInput}
+                                                            placeholder="Min"
+                                                        />
+                                                    </div>
+                                                )}
+                                            </div>
+                                            
+                                            {incident.type === 'substitution' ? (
+                                                <div style={{display: 'flex', gap: theme.spacing.small, alignItems: 'center'}}>
+                                                    <div style={{flex: 1, position: 'relative', minWidth: 0}}>
+                                                        <span style={{position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', color: theme.colors.loss}}>⬇️</span>
+                                                        <div style={{paddingLeft: '20px'}}>
+                                                            <AutocompleteInput
+                                                                placeholder="Sale"
+                                                                value={incident.playerName}
+                                                                onChange={(value) => handleIncidentChange(index, 'playerName', value)}
+                                                                suggestions={allPlayers}
+                                                            />
+                                                        </div>
+                                                    </div>
+                                                    <div style={{flex: 1, position: 'relative', minWidth: 0}}>
+                                                        <span style={{position: 'absolute', left: '8px', top: '50%', transform: 'translateY(-50%)', fontSize: '10px', color: theme.colors.win}}>⬆️</span>
+                                                         <div style={{paddingLeft: '20px'}}>
+                                                            <AutocompleteInput
+                                                                placeholder="Entra"
+                                                                value={incident.playerIn || ''}
+                                                                onChange={(value) => handleIncidentChange(index, 'playerIn', value)}
+                                                                suggestions={allPlayers}
+                                                            />
+                                                         </div>
+                                                    </div>
+                                                </div>
+                                            ) : (
+                                                <AutocompleteInput
+                                                    placeholder="Jugador"
+                                                    value={incident.playerName}
+                                                    onChange={(value) => handleIncidentChange(index, 'playerName', value)}
+                                                    suggestions={allPlayers}
+                                                />
+                                            )}
+                                        </div>
+                                        <button type="button" onClick={() => handleRemoveIncident(index)} style={{...styles.removeButton, marginTop: '8px'}}>&times;</button>
+                                    </div>
+                                ))}
+                                <button type="button" onClick={handleAddIncident} style={styles.addPlayerButton}>+ INCIDENCIA</button>
+                           </div>
+
+                          <div style={{display: 'flex', justifyContent: 'flex-end', gap: theme.spacing.medium, marginTop: theme.spacing.large}}>
                               <button type="button" onClick={handleCancelEditPlayers} style={{...styles.actionButton, ...styles.editButton}}>Cancelar</button>
                               <button type="submit" style={{...styles.actionButton, border: `1px solid ${theme.colors.win}`, color: theme.colors.win}}>Guardar</button>
                           </div>

@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect, useMemo, useCallback } from 'react';
-import type { Match, MatchSortByType, PlayerPerformance } from '../types';
+import type { Match, MatchSortByType, PlayerPerformance, Incident, TournamentSettings, PlayerProfileData } from '../types';
 import { useTheme } from '../contexts/ThemeContext';
 import { useData } from '../contexts/DataContext';
 import MatchForm from '../components/MatchForm';
@@ -8,7 +9,7 @@ import MatchListControls from '../components/MatchListControls';
 
 const RecorderPage: React.FC = () => {
   const { theme } = useTheme();
-  const { matches, addMatch, updateMatch, deleteMatch, updateMatchPlayers, isShareMode, tournamentStyles } = useData();
+  const { matches, addMatch, updateMatch, deleteMatch, updateMatchDetails, isShareMode, tournamentSettings, allPlayers, playerProfiles } = useData();
   
   const [error, setError] = useState<string | null>(null);
   const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 992);
@@ -18,23 +19,6 @@ const RecorderPage: React.FC = () => {
   const [resultFilter, setResultFilter] = useState<'ALL' | 'VICTORIA' | 'DERROTA' | 'EMPATE'>('ALL');
   const [sortBy, setSortBy] = useState<MatchSortByType>('date_desc');
   const [tournamentFilter, setTournamentFilter] = useState<string>('ALL');
-
-  const allPlayers = useMemo(() => {
-    const players = new Set<string>();
-    matches.forEach(match => {
-      match.players?.forEach(p => {
-        if (p && p.name.trim()) {
-          players.add(p.name.trim());
-        }
-      });
-      match.opponentPlayers?.forEach(p => {
-        if (p && p.name.trim()) {
-          players.add(p.name.trim());
-        }
-      });
-    });
-    return Array.from(players).sort();
-  }, [matches]);
 
   const allTournaments = useMemo(() => {
     const tournaments = new Set<string>();
@@ -142,7 +126,7 @@ const RecorderPage: React.FC = () => {
       mainContent: {
         maxWidth: '800px',
         margin: '0 auto',
-        padding: `${theme.spacing.extraLarge} ${theme.spacing.medium}`,
+        padding: isDesktop ? `${theme.spacing.extraLarge} ${theme.spacing.medium}` : `${theme.spacing.large} ${theme.spacing.medium}`,
       },
       ...commonStyles
     };
@@ -162,7 +146,7 @@ const RecorderPage: React.FC = () => {
               allTournaments={allTournaments}
               tournamentFilter={tournamentFilter}
               setTournamentFilter={setTournamentFilter}
-              tournamentStyles={tournamentStyles}
+              tournamentSettings={tournamentSettings}
             />
           </div>
           <MatchList 
@@ -182,14 +166,16 @@ const RecorderPage: React.FC = () => {
     mainContent: {
       maxWidth: '1200px',
       margin: '0 auto',
-      padding: `${theme.spacing.extraLarge} ${theme.spacing.medium}`,
+      // Restored standard padding for mobile to align sections
+      padding: isDesktop ? `${theme.spacing.extraLarge} ${theme.spacing.medium}` : `${theme.spacing.medium} ${theme.spacing.medium}`,
       display: 'grid',
-      gap: theme.spacing.extraLarge,
-      gridTemplateColumns: isDesktop ? '380px 1fr' : '1fr',
+      gap: isDesktop ? theme.spacing.extraLarge : theme.spacing.medium,
+      gridTemplateColumns: isDesktop ? '380px 1fr' : '100%',
+      width: '100%',
     },
     formContainer: {
       backgroundColor: theme.colors.surface,
-      padding: theme.spacing.large,
+      padding: isDesktop ? theme.spacing.large : theme.spacing.medium,
       borderRadius: theme.borderRadius.large,
       boxShadow: theme.shadows.large,
       border: `1px solid ${theme.colors.border}`,
@@ -200,7 +186,9 @@ const RecorderPage: React.FC = () => {
         top: `calc(65px + ${theme.spacing.extraLarge})`,
       }),
     },
-    listContainer: {},
+    listContainer: {
+      minWidth: 0, // Important for grid items to shrink
+    },
     ...commonStyles,
   };
 
@@ -219,6 +207,8 @@ const RecorderPage: React.FC = () => {
             matchToEdit={matchToEdit}
             allPlayers={allPlayers}
             allTournaments={allTournaments}
+            tournamentSettings={tournamentSettings}
+            playerProfiles={playerProfiles}
             allMyTeamNames={allMyTeamNames}
             allOpponentNames={allOpponentNames}
           />
@@ -236,7 +226,7 @@ const RecorderPage: React.FC = () => {
               allTournaments={allTournaments}
               tournamentFilter={tournamentFilter}
               setTournamentFilter={setTournamentFilter}
-              tournamentStyles={tournamentStyles}
+              tournamentSettings={tournamentSettings}
             />
           </div>
           <MatchList 
@@ -246,7 +236,7 @@ const RecorderPage: React.FC = () => {
             allTournaments={allTournaments}
             onDeleteMatch={handleDeleteMatch}
             onEditMatch={handleStartEdit}
-            onUpdateMatchPlayers={updateMatchPlayers}
+            onUpdateMatchDetails={updateMatchDetails}
             sortBy={sortBy}
             isReadOnly={isShareMode}
           />

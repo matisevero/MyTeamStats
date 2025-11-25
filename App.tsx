@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo } from 'react';
 import { useTheme } from './contexts/ThemeContext';
 import { useData } from './contexts/DataContext';
+import { useAuth } from './contexts/AuthContext';
 
 import Header from './components/Header';
 import RecorderPage from './pages/RecorderPage';
@@ -9,12 +10,16 @@ import SquadPage from './pages/SquadPage';
 import CoachPage from './pages/CoachPage';
 import SettingsPage from './pages/SettingsPage';
 import TablePage from './pages/TablePage';
+import ProgressPage from './pages/ProgressPage';
+import SocialPage from './pages/SocialPage';
+import LoginPage from './pages/LoginPage';
 import { InfoIcon } from './components/icons/InfoIcon';
 import OnboardingPage from './pages/OnboardingPage';
 import PlayerDetailModal from './components/squad/PlayerDetailModal';
 import type { SquadPlayerStats } from './types';
+import { Loader } from './components/Loader';
 
-export type Page = 'recorder' | 'stats' | 'squad' | 'coach' | 'settings' | 'table';
+export type Page = 'recorder' | 'stats' | 'squad' | 'progress' | 'coach' | 'settings' | 'table' | 'social' | 'login';
 
 const App: React.FC = () => {
   const { theme } = useTheme();
@@ -29,10 +34,19 @@ const App: React.FC = () => {
     playerProfiles, 
     updatePlayerProfile 
   } = useData();
+  
+  const { currentUser, loading } = useAuth();
+
+  // Redirect from login page if user is already authenticated
+  useEffect(() => {
+    if (currentUser && currentPage === 'login') {
+      setCurrentPage('recorder');
+    }
+  }, [currentUser, currentPage, setCurrentPage]);
 
   // Fallback for share mode if somehow navigated to a restricted page
   useEffect(() => {
-    if (isShareMode && currentPage === 'settings') {
+    if (isShareMode && (currentPage === 'settings' || currentPage === 'recorder')) {
       setCurrentPage('stats');
     }
   }, [currentPage, isShareMode, setCurrentPage]);
@@ -139,6 +153,13 @@ const App: React.FC = () => {
       justifyContent: 'center',
       gap: '0.5rem',
     },
+    loaderContainer: {
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'center',
+        height: '100vh',
+        background: theme.colors.background,
+    }
   };
 
   const renderPage = () => {
@@ -149,23 +170,40 @@ const App: React.FC = () => {
         return <TablePage />;
       case 'squad':
         return <SquadPage />;
+      case 'progress':
+        return <ProgressPage />;
       case 'coach':
         return <CoachPage />;
+      case 'social':
+        return <SocialPage />;
       case 'settings':
         return isShareMode ? <StatsPage /> : <SettingsPage />;
+      case 'login':
+        return <LoginPage />;
       case 'recorder':
       default:
-        return <RecorderPage />;
+        return isShareMode ? <StatsPage /> : <RecorderPage />;
     }
   };
 
-  if (!isOnboardingComplete && !isShareMode) {
+  if (loading) {
+      return (
+          <div style={styles.loaderContainer}>
+              <Loader />
+          </div>
+      );
+  }
+
+  // Check for onboarding only if not logging in and not in share mode
+  if (!isOnboardingComplete && !isShareMode && currentPage !== 'login') {
     return (
         <div style={styles.appContainer}>
             <OnboardingPage />
         </div>
     );
   }
+
+  const showHeader = currentPage !== 'login';
 
   return (
     <div style={styles.appContainer}>
@@ -184,8 +222,15 @@ const App: React.FC = () => {
           animation: pageFadeInUp 0.4s ease-out forwards;
         }
       `}</style>
-      <Header />
-      <div key={currentPage} style={{ paddingTop: '65px', paddingBottom: isShareMode ? '50px' : '0' }} className="page-transition-container">
+      {showHeader && <Header />}
+      <div 
+        key={currentPage} 
+        style={{ 
+            paddingTop: showHeader ? '65px' : '0', 
+            paddingBottom: isShareMode ? '50px' : '0' 
+        }} 
+        className="page-transition-container"
+      >
         {renderPage()}
       </div>
        {isShareMode && (

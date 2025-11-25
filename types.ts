@@ -6,6 +6,15 @@ export interface PlayerPerformance {
   assists: number;
   minutesPlayed?: number;
   status: 'starter' | 'substitute' | 'goalkeeper';
+  card?: 'yellow' | 'double_yellow' | 'red' | 'blue';
+}
+
+export interface Incident {
+  id: string;
+  type: 'penal_errado' | 'penal_atajado' | 'substitution';
+  playerName: string; // Functions as "Player OUT" for substitutions
+  playerIn?: string; // Only for substitutions
+  minute?: number;
 }
 
 export interface Match {
@@ -20,6 +29,7 @@ export interface Match {
   notes?: string;
   players: PlayerPerformance[]; // Players of my team
   opponentPlayers?: PlayerPerformance[]; // Players of opponent team
+  incidents?: Incident[];
   // Calculated fields
   myGoals: number;
   myAssists: number;
@@ -64,6 +74,7 @@ export interface SquadPlayerStats {
   cleanSheets: number;
   goalsAgainst?: number;
   isGoalkeeper?: boolean;
+  jerseyNumber?: number;
 }
 
 export interface PlayerPairStats {
@@ -132,7 +143,7 @@ export interface PlayerMorale {
   };
 }
 
-export type GoalMetric = 'myGoals' | 'myAssists' | 'VICTORIA' | 'winRate' | 'gpm' | 'longestWinStreak' | 'longestUndefeatedStreak';
+export type GoalMetric = 'myGoals' | 'points' | 'efectividad' | 'cleanSheets' | 'longestWinStreak' | 'longestUndefeatedStreak' | 'winRate' | 'VICTORIA';
 
 export interface Goal {
   id: string;
@@ -222,10 +233,19 @@ export interface OpponentStats {
   avgPointsAgainst: number;
 }
 
+export interface TournamentSettings {
+  icon: string;
+  color: string;
+  matchDuration?: number;
+  playersPerSide?: number;
+}
+
 export interface PlayerProfileData {
   photoUrl?: string;
+  jerseyNumber?: number;
 }
 
 export interface TeamProfileData {
   shieldUrl?: string;
+  isHidden?: boolean;
 }
