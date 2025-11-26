@@ -1,7 +1,7 @@
 
 import React, { createContext, useContext, useState, ReactNode, useEffect, useMemo } from 'react';
 import { useLocalStorage } from '../hooks/useLocalStorage';
-import type { Match, AIInteraction, PlayerPerformance, Goal, CustomAchievement, PlayerProfileData, TeamProfileData, Incident, TournamentSettings } from '../types';
+import type { Match, AIInteraction, PlayerPerformance, Goal, CustomAchievement, PlayerProfileData, TeamProfileData, Incident, TournamentSettings, TeamMember, TeamRole } from '../types';
 import type { Page } from '../App';
 import { initialData } from '../data/initialData';
 import { useAuth } from './AuthContext';
@@ -14,7 +14,7 @@ interface DataContextType {
   aiInteractions: AIInteraction[];
   currentPage: Page;
   setCurrentPage: (page: Page) => void;
-  addMatch: (matchData: Omit<Match, 'id' | 'result' | 'myGoals' | 'myAssists' | 'goalDifference'>) => Match;
+  addMatch: (matchData: Omit<Match, 'id' | 'result' | 'myGoals' | 'myAssists' | 'goalDifference'>) => Promise<Match>;
   updateMatch: (match: Match) => void;
   deleteMatch: (matchId: string) => void;
   updateMatchDetails: (matchId: string, players: PlayerPerformance[], tournament: string, incidents: Incident[]) => void;
@@ -53,6 +53,12 @@ interface DataContextType {
   importFromFile: (data: any) => Promise<void>;
   deleteTeam: (teamName: string) => void;
   resetAccount: () => Promise<void>;
+  // Member Management
+  userRole: TeamRole;
+  teamMembers: TeamMember[];
+  inviteMember: (email: string, role: TeamRole) => void;
+  updateMemberRole: (email: string, newRole: TeamRole) => void;
+  removeMember: (email: string) => void;
 }
 
 const DataContext = createContext<DataContextType | undefined>(undefined);
@@ -74,6 +80,26 @@ const processMatch = (matchData: Omit<Match, 'id' | 'result' | 'myGoals' | 'myAs
     myAssists,
     goalDifference,
   };
+};
+
+// Helper to sanitize objects before saving (removes circular references)
+const sanitizeContent = (content: any) => {
+    try {
+        const cache = new Set();
+        const safeJson = JSON.stringify(content, (key, value) => {
+            if (typeof value === 'object' && value !== null) {
+                if (cache.has(value)) {
+                    return; // Circular reference found, discard key
+                }
+                cache.add(value);
+            }
+            return value;
+        });
+        return JSON.parse(safeJson);
+    } catch (e) {
+        console.error("Failed to sanitize AI interaction content", e);
+        return {};
+    }
 };
 
 export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
@@ -117,6 +143,23 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   const mainTeamName = currentUser ? (cloudTeamData?.name || 'Mi Equipo') : localMainTeamName;
   const teamProfiles = currentUser ? (cloudTeamData?.teamProfiles || {}) : localTeamProfiles;
+  
+  const teamMembers = currentUser ? (cloudTeamData?.members || []) : [];
+
+  // Calculate Roles
+  const userRole: TeamRole = useMemo(() => {
+      if (!currentUser) return 'owner'; // Local user is always owner
+      if (!cloudTeamData) return 'viewer';
+      
+      if (cloudTeamData.ownerId === currentUser.uid) return 'owner';
+      
+      const memberRecord = (cloudTeamData.members || []).find((m: TeamMember) => m.email === currentUser.email);
+      return memberRecord ? memberRecord.role : 'viewer';
+  }, [currentUser, cloudTeamData]);
+
+  const canEdit = ['owner', 'admin', 'editor'].includes(userRole);
+  const canManage = ['owner', 'admin'].includes(userRole);
+  const isOwner = userRole === 'owner';
 
   // 1. User Sync & Active Team Detection
   useEffect(() => {
@@ -136,6 +179,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 // New User: Migration Strategy
                 const newTeamRef = doc(collection(db, 'teams'));
                 
+                // STRICT CHECK: Only migrate if local data is NOT the default example set.
+                // Example data has ID '1'. If user starts fresh, localMatches is empty.
                 const hasLocalData = localMatches.length > 0 && localMatches[0].id !== '1'; 
                 const migrationOnboardingStatus = hasLocalData ? true : false;
 
@@ -151,7 +196,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                     mainPlayerName: localMainPlayerName,
                     teamProfiles: localTeamProfiles,
                     createdAt: new Date().toISOString(),
-                    onboardingCompleted: migrationOnboardingStatus
+                    onboardingCompleted: migrationOnboardingStatus,
+                    members: [] // Initial members list
                 };
 
                 const batch = writeBatch(db);
@@ -162,10 +208,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                 });
                 batch.set(newTeamRef, initialTeamData);
                 
-                localMatches.forEach(match => {
-                    const matchRef = doc(collection(db, `teams/${newTeamRef.id}/matches`));
-                    batch.set(matchRef, match);
-                });
+                // Only upload matches if they are not the default example data
+                if (hasLocalData) {
+                    localMatches.forEach(match => {
+                        const matchRef = doc(collection(db, `teams/${newTeamRef.id}/matches`));
+                        batch.set(matchRef, match);
+                    });
+                }
 
                 await batch.commit();
             }
@@ -270,14 +319,14 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
   const setAiInteractions = (action: React.SetStateAction<AIInteraction[]>) => {
       if (!currentUser) setLocalAiInteractions(action);
-      else {
+      else if (canEdit) {
           const newData = typeof action === 'function' ? action(aiInteractions) : action;
           updateCloudTeamData({ aiInteractions: newData });
       }
   };
   const setMainTeamName = (action: React.SetStateAction<string>) => {
       if (!currentUser) setLocalMainTeamName(action);
-      else {
+      else if (canManage) {
           const newName = typeof action === 'function' ? action(mainTeamName) : action;
           updateCloudTeamData({ name: newName });
       }
@@ -285,17 +334,22 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
 
   // CRUD Operations
 
-  const addMatch = (matchData: Omit<Match, 'id' | 'result' | 'myGoals' | 'myAssists' | 'goalDifference'>): Match => {
+  const addMatch = async (matchData: Omit<Match, 'id' | 'result' | 'myGoals' | 'myAssists' | 'goalDifference'>): Promise<Match> => {
     const processed = processMatch(matchData);
     
     if (currentUser) {
+        if (!canEdit) {
+            alert("No tienes permisos para añadir partidos.");
+            return { id: 'temp', ...processed };
+        }
         const newMatchId = Date.now().toString(); 
-        const asyncAdd = async () => {
-            if (activeTeamId) {
-               await addDoc(collection(db, `teams/${activeTeamId}/matches`), processed); 
+        if (activeTeamId) {
+            try {
+                await addDoc(collection(db, `teams/${activeTeamId}/matches`), processed);
+            } catch (e) {
+                console.error("Error adding match", e);
             }
         }
-        asyncAdd();
         return { id: newMatchId, ...processed }; 
     } else {
         const newMatch: Match = { id: Date.now().toString(), ...processed };
@@ -305,6 +359,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
   
   const updateMatch = (match: Match) => {
+    if (currentUser && !canEdit) return alert("No tienes permisos para editar.");
     const processed = processMatch(match);
     if (currentUser) {
         const asyncUpdate = async () => {
@@ -318,24 +373,27 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   };
 
-  const deleteMatch = (matchId: string) => {
+  const deleteMatch = async (matchId: string) => {
+    if (currentUser && !canEdit) return alert("No tienes permisos para eliminar.");
     if (currentUser) {
-         const asyncDelete = async () => {
-            if (activeTeamId) {
-                try {
-                    await deleteDoc(doc(db, `teams/${activeTeamId}/matches`, matchId));
-                } catch (e) {
-                    console.error("Error deleting match:", e);
-                }
+        if (activeTeamId) {
+            setIsSyncing(true);
+            try {
+                await deleteDoc(doc(db, `teams/${activeTeamId}/matches`, matchId));
+            } catch (e) {
+                console.error("Error deleting match:", e);
+                alert("Hubo un error al eliminar el partido de la nube.");
+            } finally {
+                setIsSyncing(false);
             }
         }
-        asyncDelete();
     } else {
         setLocalMatches(prev => prev.filter(m => m.id !== matchId));
     }
   };
 
   const updateMatchDetails = (matchId: string, players: PlayerPerformance[], tournament: string, incidents: Incident[]) => {
+    if (currentUser && !canEdit) return alert("No tienes permisos para editar.");
     const currentMatches = currentUser ? cloudMatches : localMatches;
     const matchToUpdate = currentMatches.find(m => m.id === matchId);
     if (matchToUpdate) {
@@ -345,40 +403,46 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   };
   
   const addAIInteraction = (type: AIInteraction['type'], content: any) => {
+    const sanitizedContent = sanitizeContent(content);
     const newInteraction: AIInteraction = {
       id: Date.now().toString(),
       date: new Date().toISOString(),
       type,
-      content,
+      content: sanitizedContent,
     };
     if (currentUser) {
-        updateCloudTeamData({ aiInteractions: [newInteraction, ...aiInteractions] });
+        if (canEdit) updateCloudTeamData({ aiInteractions: [newInteraction, ...aiInteractions] });
     } else {
         setLocalAiInteractions(prev => [newInteraction, ...prev].sort((a,b) => new Date(b.date).getTime() - new Date(a.date).getTime()));
     }
   };
 
   const addGoal = (goal: Omit<Goal, 'id'>) => {
+    if (currentUser && !canManage) return alert("Solo administradores pueden gestionar metas.");
     const newGoal = { id: Date.now().toString(), ...goal };
     if(currentUser) updateCloudTeamData({ goals: [...goals, newGoal] });
     else setLocalGoals(prev => [newGoal, ...prev]);
   };
   const deleteGoal = (id: string) => {
+      if (currentUser && !canManage) return alert("Solo administradores pueden gestionar metas.");
       if(currentUser) updateCloudTeamData({ goals: goals.filter(g => g.id !== id) });
       else setLocalGoals(prev => prev.filter(g => g.id !== id));
   }
 
   const addCustomAchievement = (ach: Omit<CustomAchievement, 'id' | 'unlocked'>) => {
+      if (currentUser && !canManage) return alert("Solo administradores pueden gestionar logros.");
       const newAch = { id: Date.now().toString(), unlocked: false, ...ach };
       if(currentUser) updateCloudTeamData({ customAchievements: [...customAchievements, newAch] });
       else setLocalCustomAchievements(prev => [...prev, newAch]);
   }
   const deleteCustomAchievement = (id: string) => {
+      if (currentUser && !canManage) return alert("Solo administradores pueden gestionar logros.");
       if(currentUser) updateCloudTeamData({ customAchievements: customAchievements.filter(a => a.id !== id) });
       else setLocalCustomAchievements(prev => prev.filter(a => a.id !== id));
   }
 
   const addPlayerToRoster = (playerName: string) => {
+    if (currentUser && !canEdit) return alert("No tienes permiso para editar el plantel.");
     const trimmed = playerName.trim();
     if(trimmed && !roster.includes(trimmed)) {
         if(currentUser) updateCloudTeamData({ roster: [...roster, trimmed].sort() });
@@ -386,17 +450,20 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     }
   }
   const deletePlayerFromRoster = (name: string) => {
+      if (currentUser && !canEdit) return alert("No tienes permiso para editar el plantel.");
       if(currentUser) updateCloudTeamData({ roster: roster.filter(p => p !== name) });
       else setLocalRoster(prev => prev.filter(p => p !== name));
   }
 
   const updatePlayerProfile = (name: string, data: Partial<PlayerProfileData>) => {
+      if (currentUser && !canEdit) return alert("No tienes permiso para editar perfiles.");
       const newProfiles = { ...playerProfiles, [name]: { ...(playerProfiles[name] || {}), ...data } };
       if(currentUser) updateCloudTeamData({ playerProfiles: newProfiles });
       else setLocalPlayerProfiles(newProfiles);
   }
 
   const updateTeamProfile = (originalName: string, newName: string, data: Partial<TeamProfileData>) => {
+      if (currentUser && !canManage) return alert("Solo administradores pueden editar perfiles de equipo.");
       const trimmedNew = newName.trim();
       if (!trimmedNew) return;
       
@@ -418,6 +485,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }
   
   const updateTournamentSettings = (o: string, n: string, s: Partial<TournamentSettings>) => {
+      if (currentUser && !canManage) return alert("Solo administradores pueden gestionar torneos.");
       const newS = { ...tournamentSettings };
       const exist = newS[o] || { icon: '🏆', color: '#FFC107' };
       if(o !== n) delete newS[o];
@@ -427,6 +495,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }
   
   const deleteTournament = (name: string) => {
+      if (currentUser && !canManage) return alert("Solo administradores pueden gestionar torneos.");
       const newS = { ...tournamentSettings };
       delete newS[name];
       if(currentUser) updateCloudTeamData({ tournamentSettings: newS });
@@ -434,6 +503,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   }
 
   const updatePlayerName = (oldName: string, newName: string) => {
+      if (currentUser && !canEdit) return alert("No tienes permiso para renombrar jugadores.");
       if (!currentUser) {
           const trimmedNew = newName.trim();
           if (!trimmedNew || trimmedNew === oldName) return;
@@ -470,6 +540,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const importFromFile = async (data: any) => {
     if (currentUser) {
         if (!activeTeamId) return;
+        if (!canManage) return alert("Solo administradores pueden importar datos.");
         setIsSyncing(true);
         try {
             // 1. Update Top Level Fields (Merged or overwritten)
@@ -543,6 +614,7 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
   const deleteTeam = async (teamName: string) => {
       if (currentUser) {
           if (!activeTeamId) return;
+          if (!isOwner) return alert("Solo el dueño del equipo puede eliminarlo.");
           setIsSyncing(true);
           try {
               // 1. Delete associated matches (Client side filtering for batch delete)
@@ -566,27 +638,42 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
               const updates: any = { teamProfiles: newProfiles };
               
               // 3. Update mainTeamName if it was the one deleted
+              let newMainTeamName = mainTeamName;
               if (mainTeamName === teamName) {
-                  updates.name = "Mi Equipo"; // Fallback
+                  // Find another active team, or fallback
+                  const otherTeam = activeTeams.find(t => t !== teamName);
+                  newMainTeamName = otherTeam || "Mi Equipo";
+                  updates.name = newMainTeamName;
               }
 
               await updateCloudTeamData(updates);
+              // NOTE: Do not call setMainTeamName here to avoid redundant write. 
+              // The snapshot listener will update the local state automatically.
 
           } catch (error) {
               console.error("Error deleting team:", error);
+              alert("Hubo un error al eliminar el equipo.");
           } finally {
               setIsSyncing(false);
           }
       } else {
           // Local deletion
-          setLocalMatches(prev => prev.filter(m => m.teamName !== teamName));
-          setLocalTeamProfiles(prev => {
-              const copy = { ...prev };
-              delete copy[teamName];
-              return copy;
-          });
+          const updatedMatches = localMatches.filter(m => m.teamName !== teamName);
+          setLocalMatches(updatedMatches);
+          
+          const updatedProfiles = { ...localTeamProfiles };
+          delete updatedProfiles[teamName];
+          setLocalTeamProfiles(updatedProfiles);
+
           if (localMainTeamName === teamName) {
-              setLocalMainTeamName("Mi Equipo");
+              // Recalculate available teams from the updated matches to find a fallback
+              const remainingTeams = new Set<string>();
+              updatedMatches.forEach(m => { if (m.teamName) remainingTeams.add(m.teamName); });
+              // Add "Mi Equipo" as default fallback if nothing else exists
+              const candidates = Array.from(remainingTeams).filter(t => !updatedProfiles[t]?.isHidden);
+              
+              const otherLocalTeam = candidates.length > 0 ? candidates[0] : "Mi Equipo";
+              setLocalMainTeamName(otherLocalTeam);
           }
       }
   };
@@ -623,7 +710,8 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
                       name: "Mi Equipo",
                       ownerId: currentUser.uid,
                       createdAt: new Date().toISOString(),
-                      onboardingCompleted: false // Force onboarding again
+                      onboardingCompleted: false, // Force onboarding again
+                      members: []
                   };
                   
                   const batch = writeBatch(db);
@@ -647,6 +735,36 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
           localStorage.clear();
           window.location.reload();
       }
+  };
+
+  // Member Management Actions
+  const inviteMember = (email: string, role: TeamRole) => {
+      if (!currentUser || !activeTeamId) return;
+      if (!canManage) return alert("No tienes permisos para invitar miembros.");
+      
+      const newMember: TeamMember = { email, role };
+      // Check if already exists
+      if (teamMembers.some(m => m.email === email)) {
+          return alert("Este usuario ya es miembro del equipo.");
+      }
+      
+      updateCloudTeamData({ members: [...teamMembers, newMember] });
+  };
+
+  const updateMemberRole = (email: string, newRole: TeamRole) => {
+      if (!currentUser || !activeTeamId) return;
+      if (!canManage) return alert("No tienes permisos para gestionar roles.");
+      
+      const updatedMembers = teamMembers.map(m => m.email === email ? { ...m, role: newRole } : m);
+      updateCloudTeamData({ members: updatedMembers });
+  };
+
+  const removeMember = (email: string) => {
+      if (!currentUser || !activeTeamId) return;
+      if (!canManage) return alert("No tienes permisos para eliminar miembros.");
+      
+      const updatedMembers = teamMembers.filter(m => m.email !== email);
+      updateCloudTeamData({ members: updatedMembers });
   };
 
   const value = {
@@ -681,7 +799,13 @@ export const DataProvider: React.FC<{ children: ReactNode }> = ({ children }) =>
     isSyncing,
     importFromFile,
     deleteTeam,
-    resetAccount
+    resetAccount,
+    // Members
+    userRole,
+    teamMembers,
+    inviteMember,
+    updateMemberRole,
+    removeMember
   };
 
   return <DataContext.Provider value={value}>{children}</DataContext.Provider>;

@@ -20,11 +20,13 @@ interface PlayerDetailModalProps {
 
 const PlayerDetailModal: React.FC<PlayerDetailModalProps> = ({ player, allMatches, profile, onClose, onProfileUpdate }) => {
   const { theme } = useTheme();
-  const { updatePlayerName, isShareMode } = useData();
+  const { updatePlayerName, isShareMode, userRole } = useData();
   const [photoUrlInput, setPhotoUrlInput] = useState(profile?.photoUrl || '');
   
   const [isEditingName, setIsEditingName] = useState(false);
   const [editedName, setEditedName] = useState(player.name);
+
+  const canEdit = ['owner', 'admin', 'editor'].includes(userRole);
 
   useEffect(() => {
     document.body.style.overflow = 'hidden';
@@ -200,7 +202,7 @@ const PlayerDetailModal: React.FC<PlayerDetailModalProps> = ({ player, allMatche
                 ) : (
                     <>
                         <h2 style={styles.title}>Perfil de {player.name}</h2>
-                        {!isShareMode && (
+                        {!isShareMode && canEdit && (
                             <button onClick={() => setIsEditingName(true)} style={styles.editButton} aria-label="Editar nombre">
                                 <PencilIcon size={16} />
                             </button>
@@ -219,17 +221,19 @@ const PlayerDetailModal: React.FC<PlayerDetailModalProps> = ({ player, allMatche
                         <ImageIcon size={40} color={theme.colors.borderStrong} />
                     )}
                 </div>
-                <div style={styles.photoInputContainer}>
-                    <p style={{...styles.sectionTitle, border: 'none', padding: 0, margin: `0 0 ${theme.spacing.small} 0`}}>Foto del jugador</p>
-                    <input 
-                        type="text" 
-                        placeholder="Pega la URL de la imagen aquí..."
-                        value={photoUrlInput}
-                        onChange={(e) => setPhotoUrlInput(e.target.value)}
-                        style={styles.photoInput}
-                    />
-                    <button onClick={handlePhotoUpdate} style={styles.savePhotoButton}>Guardar foto</button>
-                </div>
+                {canEdit && (
+                    <div style={styles.photoInputContainer}>
+                        <p style={{...styles.sectionTitle, border: 'none', padding: 0, margin: `0 0 ${theme.spacing.small} 0`}}>Foto del jugador</p>
+                        <input 
+                            type="text" 
+                            placeholder="Pega la URL de la imagen aquí..."
+                            value={photoUrlInput}
+                            onChange={(e) => setPhotoUrlInput(e.target.value)}
+                            style={styles.photoInput}
+                        />
+                        <button onClick={handlePhotoUpdate} style={styles.savePhotoButton}>Guardar foto</button>
+                    </div>
+                )}
             </div>
 
             <div style={styles.section}>

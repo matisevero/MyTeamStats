@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo, useRef, useEffect } from 'react';
 import { useTheme } from '../../contexts/ThemeContext';
 import type { PlayerPairStats } from '../../types';
@@ -133,45 +134,90 @@ const AssociationHeatmap: React.FC<AssociationHeatmapProps> = ({ players, pairs 
     return { top: `${top}px`, left: `${left}px`, transform, opacity: 1, visibility: 'visible' };
   };
 
+  const CELL_SIZE = 22; // Ultra compact cell size
+  const HEADER_HEIGHT = 110; // Height for vertical text names
 
   const styles: { [key: string]: React.CSSProperties } = {
-    container: { position: 'relative' },
+    wrapper: {
+        position: 'relative',
+        width: '100%',
+        overflow: 'hidden',
+    },
+    scrollContainer: {
+        overflow: 'auto',
+        maxHeight: '600px',
+        maxWidth: '100%',
+        position: 'relative',
+        border: `1px solid ${theme.colors.border}`,
+        borderRadius: theme.borderRadius.medium,
+    },
     grid: {
       display: 'grid',
-      gridTemplateColumns: `auto repeat(${players.length}, 1fr)`,
-      gridTemplateRows: `auto repeat(${players.length}, 1fr)`,
-      gap: '2px',
+      // 1st column auto, rest fixed small size
+      gridTemplateColumns: `auto repeat(${players.length}, ${CELL_SIZE}px)`,
+      // 1st row taller for vertical text, rest fixed small size
+      gridTemplateRows: `${HEADER_HEIGHT}px repeat(${players.length}, ${CELL_SIZE}px)`,
+      gap: '1px',
+      backgroundColor: theme.colors.border, // Gap color
+      width: 'max-content', // Shrink to fit
+    },
+    cornerCell: {
+        position: 'sticky',
+        top: 0,
+        left: 0,
+        zIndex: 20,
+        backgroundColor: theme.colors.surface,
+        borderBottom: `1px solid ${theme.colors.border}`,
+        borderRight: `1px solid ${theme.colors.border}`,
     },
     headerCell: {
-      fontSize: '0.6rem',
+      fontSize: '9px', // Approx 7pt
       fontWeight: 'bold',
       color: theme.colors.secondaryText,
+      backgroundColor: theme.colors.surface,
+      position: 'sticky',
+      top: 0,
+      zIndex: 10,
+      borderBottom: `1px solid ${theme.colors.border}`,
+      // Vertical Text Styling
+      writingMode: 'vertical-rl',
+      transform: 'rotate(180deg)', 
+      whiteSpace: 'nowrap',
+      padding: '4px 0',
       display: 'flex',
       alignItems: 'center',
-      justifyContent: 'center',
-      padding: '0.25rem',
-      whiteSpace: 'nowrap',
+      justifyContent: 'flex-start', // Aligns text to bottom (because of rotation)
+      height: `${HEADER_HEIGHT}px`,
+      width: `${CELL_SIZE}px`,
     },
     verticalHeader: {
-      writingMode: 'vertical-rl',
-      transform: 'rotate(180deg)',
-      textAlign: 'right',
-      paddingRight: '0.5rem',
+      position: 'sticky',
+      left: 0,
+      zIndex: 10,
+      borderRight: `1px solid ${theme.colors.border}`,
+      backgroundColor: theme.colors.surface,
+      height: `${CELL_SIZE}px`,
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'flex-end',
+      fontSize: '9px', // Approx 7pt
+      fontWeight: 600,
+      color: theme.colors.secondaryText,
+      whiteSpace: 'nowrap',
+      paddingRight: '6px',
+      paddingLeft: '4px',
     },
     cell: {
-      width: '100%',
-      paddingBottom: '100%', // Aspect ratio 1:1
+      width: `${CELL_SIZE}px`,
+      height: `${CELL_SIZE}px`,
       position: 'relative',
+      backgroundColor: theme.colors.background,
     },
     cellContent: {
-      position: 'absolute',
-      top: 0,
-      left: 0,
-      right: 0,
-      bottom: 0,
-      backgroundColor: theme.colors.background,
-      borderRadius: '2px',
+      width: '100%',
+      height: '100%',
       cursor: 'pointer',
+      transition: 'opacity 0.1s',
     },
     tooltip: {
       position: 'absolute',
@@ -181,7 +227,7 @@ const AssociationHeatmap: React.FC<AssociationHeatmapProps> = ({ players, pairs 
       padding: theme.spacing.small,
       color: theme.colors.primaryText,
       fontSize: '0.8rem',
-      zIndex: 10,
+      zIndex: 30,
       pointerEvents: 'none',
       boxShadow: theme.shadows.large,
       whiteSpace: 'nowrap',
@@ -202,43 +248,56 @@ const AssociationHeatmap: React.FC<AssociationHeatmapProps> = ({ players, pairs 
     },
     legendBar: {
         width: '100px',
-        height: '10px',
-        borderRadius: '5px',
+        height: '8px',
+        borderRadius: '4px',
     }
   };
   
   const legendGradient = `linear-gradient(to right, ${getColor(minScore)}, ${getColor(minScore + (maxScore - minScore) / 2)}, ${getColor(maxScore)})`;
 
   return (
-    <div ref={containerRef} style={styles.container}>
-      <div style={styles.grid}>
-        <div style={styles.headerCell}></div>
-        {players.map(p => (
-          <div key={p} style={styles.headerCell}>{p.substring(0, 3)}.</div>
-        ))}
-        {players.map((p1, rowIndex) => (
-          <React.Fragment key={p1}>
-            <div style={{ ...styles.headerCell, ...styles.verticalHeader }}>{p1}</div>
-            {players.map((p2, colIndex) => {
-              if (rowIndex >= colIndex) {
-                return <div key={p2} style={styles.cell}><div style={{...styles.cellContent, background: theme.colors.border, cursor: 'default'}}></div></div>;
-              }
-              const key = [p1, p2].sort().join('-');
-              const pair = pairMap.get(key);
-              return (
-                <div key={p2} style={styles.cell}>
-                  <div
-                    style={{
-                      ...styles.cellContent,
-                      backgroundColor: pair ? getColor(pair.impactScore) : theme.colors.background,
-                    }}
-                    onClick={(e) => handleClick(p1, p2, rowIndex, colIndex, e)}
-                  ></div>
-                </div>
-              );
-            })}
-          </React.Fragment>
-        ))}
+    <div ref={containerRef} style={styles.wrapper}>
+      <div style={styles.scrollContainer} className="subtle-scrollbar">
+          <div style={styles.grid}>
+            <div style={styles.cornerCell}></div>
+            {/* Top Headers (Vertical Text) */}
+            {players.map(p => (
+              <div key={`h-${p}`} style={styles.headerCell} title={p}>{p}</div>
+            ))}
+            
+            {/* Rows */}
+            {players.map((p1, rowIndex) => (
+              <React.Fragment key={`r-${p1}`}>
+                {/* Left Header (Horizontal Text) */}
+                <div style={styles.verticalHeader} title={p1}>{p1}</div>
+                
+                {/* Data Cells */}
+                {players.map((p2, colIndex) => {
+                  // Diagonal and mirrored cells blank or specific style
+                  if (rowIndex >= colIndex) {
+                    return <div key={`${p1}-${p2}`} style={styles.cell}><div style={{width: '100%', height: '100%', background: theme.colors.border, cursor: 'default', opacity: 0.3}}></div></div>;
+                  }
+                  
+                  const key = [p1, p2].sort().join('-');
+                  const pair = pairMap.get(key);
+                  
+                  return (
+                    <div key={`${p1}-${p2}`} style={styles.cell}>
+                      <div
+                        style={{
+                          ...styles.cellContent,
+                          backgroundColor: pair ? getColor(pair.impactScore) : theme.colors.background,
+                        }}
+                        onClick={(e) => handleClick(p1, p2, rowIndex, colIndex, e)}
+                        onMouseEnter={(e) => e.currentTarget.style.opacity = '0.8'}
+                        onMouseLeave={(e) => e.currentTarget.style.opacity = '1'}
+                      ></div>
+                    </div>
+                  );
+                })}
+              </React.Fragment>
+            ))}
+          </div>
       </div>
       
       <div style={styles.legendContainer}>

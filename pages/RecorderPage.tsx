@@ -9,7 +9,7 @@ import MatchListControls from '../components/MatchListControls';
 
 const RecorderPage: React.FC = () => {
   const { theme } = useTheme();
-  const { matches, addMatch, updateMatch, deleteMatch, updateMatchDetails, isShareMode, tournamentSettings, allPlayers, playerProfiles } = useData();
+  const { matches, addMatch, updateMatch, deleteMatch, updateMatchDetails, isShareMode, tournamentSettings, allPlayers, playerProfiles, userRole } = useData();
   
   const [error, setError] = useState<string | null>(null);
   const [isDesktop, setIsDesktop] = useState(window.innerWidth >= 992);
@@ -19,6 +19,8 @@ const RecorderPage: React.FC = () => {
   const [resultFilter, setResultFilter] = useState<'ALL' | 'VICTORIA' | 'DERROTA' | 'EMPATE'>('ALL');
   const [sortBy, setSortBy] = useState<MatchSortByType>('date_desc');
   const [tournamentFilter, setTournamentFilter] = useState<string>('ALL');
+
+  const canEdit = ['owner', 'admin', 'editor'].includes(userRole);
 
   const allTournaments = useMemo(() => {
     const tournaments = new Set<string>();
@@ -78,8 +80,9 @@ const RecorderPage: React.FC = () => {
   }, [matches, resultFilter, sortBy, tournamentFilter]);
 
   const handleAddMatch = (newMatchData: Omit<Match, 'id' | 'result' | 'myGoals' | 'myAssists' | 'goalDifference'>) => {
-    const newMatch = addMatch(newMatchData);
-    setLastAddedMatch(newMatch);
+    addMatch(newMatchData).then(newMatch => {
+        setLastAddedMatch(newMatch);
+    });
   };
   
   const handleUpdateMatch = (updatedMatch: Match) => {
@@ -121,7 +124,7 @@ const RecorderPage: React.FC = () => {
     controlsContainer: { marginBottom: theme.spacing.large },
   };
 
-  if (isShareMode) {
+  if (isShareMode || !canEdit) {
     const styles = {
       mainContent: {
         maxWidth: '800px',

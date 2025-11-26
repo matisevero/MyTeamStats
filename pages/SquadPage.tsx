@@ -11,6 +11,7 @@ import AssociationHeatmap from '../components/squad/AssociationHeatmap';
 import AssociationListItem from '../components/squad/AssociationListItem';
 import SettingsSection from '../components/common/SettingsSection';
 import { TrashIcon } from '../components/icons/TrashIcon';
+import { ChevronIcon } from '../components/icons/ChevronIcon';
 
 const HEADERS: { key: keyof SquadPlayerStats; label: string; isNumeric: boolean }[] = [
     { key: 'jerseyNumber', label: '#', isNumeric: true },
@@ -28,7 +29,7 @@ const HEADERS: { key: keyof SquadPlayerStats; label: string; isNumeric: boolean 
 
 const SquadPage: React.FC = () => {
   const { theme } = useTheme();
-  const { matches, setViewingPlayerName, myTeamPlayers, addPlayerToRoster, deletePlayerFromRoster, playerProfiles, updatePlayerProfile, activeTeams } = useData();
+  const { matches, setViewingPlayerName, myTeamPlayers, addPlayerToRoster, deletePlayerFromRoster, playerProfiles, updatePlayerProfile, activeTeams, userRole } = useData();
   const [sortConfig, setSortConfig] = useState<{ key: keyof SquadPlayerStats; direction: 'asc' | 'desc' }>({ key: 'matchesPlayed', direction: 'desc' });
 
   const [selectedTeam, setSelectedTeam] = useState<string>('all');
@@ -45,6 +46,10 @@ const SquadPage: React.FC = () => {
   const prevAsistidoresRef = useRef<SquadPlayerStats[]>([]);
   const prevVallasInvictasRef = useRef<SquadPlayerStats[]>([]);
   const prevAssociationsRef = useRef<PlayerPairStats[]>([]);
+  
+  const [showAllPlayers, setShowAllPlayers] = useState(false);
+
+  const canEdit = ['owner', 'admin', 'editor'].includes(userRole);
   
   useEffect(() => {
     const handleResize = () => setIsDesktop(window.innerWidth >= 992);
@@ -187,7 +192,7 @@ const SquadPage: React.FC = () => {
   }, [squadStats]);
   
   const associationData = useMemo(() => {
-    if (relevantMatches.length < 3) return { pairs: [], topPlayers: [] };
+    if (relevantMatches.length < 3) return { pairs: [], topPlayers: [], allPlayers: [], allPairs: [] };
 
     const pairStats: Record<string, {
         player1: string; player2: string; matchesTogether: number;
@@ -225,17 +230,19 @@ const SquadPage: React.FC = () => {
         }
     });
 
-    const sortedPairs = Object.values(pairStats)
+    const allRawPairs = Object.values(pairStats).map(pair => {
+        const pointsPerMatch = pair.points / pair.matchesTogether;
+        const goalsPerMatch = pair.goals / pair.matchesTogether;
+        const assistsPerMatch = pair.assists / pair.matchesTogether;
+        const impactScore = (pointsPerMatch * 1.5) + (goalsPerMatch * 1) + (assistsPerMatch * 0.75);
+        const winRate = pair.matchesTogether > 0 ? (pair.wins / pair.matchesTogether) * 100 : 0;
+        const efectividad = pair.matchesTogether > 0 ? (pair.points / (pair.matchesTogether * 3)) * 100 : 0;
+        return { ...pair, impactScore, winRate, efectividad };
+    });
+
+    // Filter for the "Top List"
+    const sortedPairs = allRawPairs
         .filter(pair => pair.matchesTogether > 2)
-        .map(pair => {
-            const pointsPerMatch = pair.points / pair.matchesTogether;
-            const goalsPerMatch = pair.goals / pair.matchesTogether;
-            const assistsPerMatch = pair.assists / pair.matchesTogether;
-            const impactScore = (pointsPerMatch * 1.5) + (goalsPerMatch * 1) + (assistsPerMatch * 0.75);
-            const winRate = pair.matchesTogether > 0 ? (pair.wins / pair.matchesTogether) * 100 : 0;
-            const efectividad = pair.matchesTogether > 0 ? (pair.points / (pair.matchesTogether * 3)) * 100 : 0;
-            return { ...pair, impactScore, winRate, efectividad };
-        })
         .sort((a, b) => b.impactScore - a.impactScore);
 
     const previousRanking = prevAssociationsRef.current;
@@ -253,9 +260,37 @@ const SquadPage: React.FC = () => {
     
     prevAssociationsRef.current = sortedPairs;
 
+    // Get players who actually have associations and calculate max impact for sorting
+    const playersWithAssociations = new Set<string>();
+    const playerMaxImpact: Record<string, number> = {};
+
+    allRawPairs.forEach(pair => {
+        if (pair.matchesTogether > 0) {
+            playersWithAssociations.add(pair.player1);
+            playersWithAssociations.add(pair.player2);
+            
+            const currentMax1 = playerMaxImpact[pair.player1] ?? -Infinity;
+            playerMaxImpact[pair.player1] = Math.max(currentMax1, pair.impactScore);
+            
+            const currentMax2 = playerMaxImpact[pair.player2] ?? -Infinity;
+            playerMaxImpact[pair.player2] = Math.max(currentMax2, pair.impactScore);
+        }
+    });
+
+    // Filter squad stats to only include players with associations and sort by MAX Impact (descending)
+    const allPlayers = [...squadStats]
+        .filter(p => playersWithAssociations.has(p.name))
+        .sort((a, b) => {
+            const impactA = playerMaxImpact[a.name] ?? -Infinity;
+            const impactB = playerMaxImpact[b.name] ?? -Infinity;
+            if (Math.abs(impactA - impactB) > 0.001) return impactB - impactA;
+            return b.matchesPlayed - a.matchesPlayed;
+        })
+        .map(p => p.name);
+
     const topPlayers = [...squadStats].sort((a,b) => b.matchesPlayed - a.matchesPlayed).slice(0, 12).map(p => p.name);
 
-    return { pairs: withMovement, topPlayers };
+    return { pairs: withMovement, allPairs: allRawPairs, topPlayers, allPlayers };
   }, [relevantMatches, squadStats]);
   
   const analysisCards = useMemo(() => [
@@ -313,6 +348,11 @@ const SquadPage: React.FC = () => {
     });
   }, [squadStats, sortConfig]);
 
+  const displayedSquad = useMemo(() => {
+      if (showAllPlayers) return sortedSquad;
+      return sortedSquad.slice(0, 30);
+  }, [sortedSquad, showAllPlayers]);
+
   const requestSort = (key: keyof SquadPlayerStats) => {
     let direction: 'asc' | 'desc' = 'desc';
     if (sortConfig.key === key && sortConfig.direction === 'desc') {
@@ -327,6 +367,7 @@ const SquadPage: React.FC = () => {
   };
   
   const handleJerseyEditStart = (player: SquadPlayerStats) => {
+    if (!canEdit) return;
     setEditingJersey(player.name);
     setJerseyInput(player.jerseyNumber?.toString() || '');
   };
@@ -359,7 +400,7 @@ const SquadPage: React.FC = () => {
                     style={{ width: '40px', textAlign: 'center', backgroundColor: theme.colors.background, border: `1px solid ${theme.colors.accent1}`, borderRadius: '4px', fontSize: theme.typography.fontSize.extraSmall, padding: theme.spacing.extraSmall }}
                 />;
             }
-            return <div onClick={() => handleJerseyEditStart(player)} style={{ cursor: 'pointer', minWidth: '40px', textAlign: 'center' }}>{value || '-'}</div>;
+            return <div onClick={() => handleJerseyEditStart(player)} style={{ cursor: canEdit ? 'pointer' : 'default', minWidth: '40px', textAlign: 'center' }}>{value || '-'}</div>;
         case 'name':
             return <div style={{fontWeight: 'bold', cursor: 'pointer'}} onClick={() => setViewingPlayerName(player.name)}>{value}</div>;
         case 'starts':
@@ -500,7 +541,8 @@ const SquadPage: React.FC = () => {
     },
     desktopGrid: {
         display: 'grid',
-        gridTemplateColumns: '450px minmax(0, 1fr)',
+        // REORDERED: Main content (Table) first, Side panel (Carousel) second
+        gridTemplateColumns: 'minmax(0, 1fr) 420px',
         gap: theme.spacing.extraLarge,
         alignItems: 'start',
     },
@@ -509,6 +551,19 @@ const SquadPage: React.FC = () => {
         flexDirection: 'column',
         gap: theme.spacing.large,
     },
+    showMoreButton: {
+        width: '100%',
+        padding: theme.spacing.medium,
+        backgroundColor: theme.colors.background,
+        border: 'none',
+        borderTop: `1px solid ${theme.colors.border}`,
+        color: theme.colors.accent2,
+        fontWeight: 'bold',
+        cursor: 'pointer',
+        transition: 'background-color 0.2s',
+        borderBottomLeftRadius: theme.borderRadius.large,
+        borderBottomRightRadius: theme.borderRadius.large,
+    }
   };
 
   if (matches.length === 0) {
@@ -523,31 +578,28 @@ const SquadPage: React.FC = () => {
       )
   }
   
+  const filteredCards = isDesktop 
+    ? analysisCards.filter(c => c.type !== 'associations') 
+    : analysisCards;
+
   const analysisContent = (
     <div style={styles.carouselWrapper}>
         <div ref={scrollContainerRef} style={styles.carouselContainer} onScroll={handleScroll} className="carousel-scrollbar">
-            {analysisCards.map((card, index) => (
+            {filteredCards.map((card, index) => (
                 <div key={index} style={styles.carouselSlide}>
                     <Card title={<>{card.icon} {card.title}</>}>
                         <p style={styles.cardDescription}>{card.description}</p>
                         {card.type === 'associations' && (
-                            isDesktop ? (
-                                <AssociationHeatmap 
-                                    players={associationData.topPlayers} 
-                                    pairs={associationData.pairs} 
-                                />
-                            ) : (
-                                <div>
-                                    {associationData.pairs.slice(0, 10).map((pair, index, arr) => (
-                                        <AssociationListItem
-                                            key={`${pair.player1}-${pair.player2}`}
-                                            rank={index + 1}
-                                            pair={pair}
-                                            isLast={index === arr.length - 1}
-                                        />
-                                    ))}
-                                </div>
-                            )
+                            <div>
+                                {associationData.pairs.slice(0, 10).map((pair, index, arr) => (
+                                    <AssociationListItem
+                                        key={`${pair.player1}-${pair.player2}`}
+                                        rank={index + 1}
+                                        pair={pair}
+                                        isLast={index === arr.length - 1}
+                                    />
+                                ))}
+                            </div>
                         )}
                         {(card.type === 'goleadores' || card.type === 'asistidores' || card.type === 'vallas') && 
                           (card.data as (SquadPlayerStats & { rankMovement: PlayerPairStats['rankMovement'] })[]).map((player, index, arr) => (
@@ -570,7 +622,7 @@ const SquadPage: React.FC = () => {
             ))}
         </div>
         <div style={styles.paginationContainer}>
-            {analysisCards.map((_, index) => (
+            {filteredCards.map((_, index) => (
                 <button key={index} style={index === activeSlide ? {...styles.dot, ...styles.activeDot} : styles.dot} onClick={() => scrollToSlide(index)} aria-label={`Ir a la tarjeta ${index + 1}`}/>
             ))}
         </div>
@@ -590,7 +642,7 @@ const SquadPage: React.FC = () => {
           </tr>
         </thead>
         <tbody>
-          {sortedSquad.map(player => (
+          {displayedSquad.map(player => (
             <tr key={player.name} style={styles.tr} className="table-row">
               {HEADERS.map(header => (
                   <td key={header.key} style={{...styles.td, ...(header.isNumeric && {textAlign: 'right'})}}>
@@ -601,10 +653,19 @@ const SquadPage: React.FC = () => {
           ))}
         </tbody>
       </table>
+      {sortedSquad.length > 30 && (
+          <button 
+            onClick={() => setShowAllPlayers(!showAllPlayers)} 
+            style={styles.showMoreButton}
+          >
+              {showAllPlayers ? 'Mostrar menos' : `Ver todos los jugadores (${sortedSquad.length})`}
+              <span style={{marginLeft: '8px'}}><ChevronIcon isExpanded={showAllPlayers} /></span>
+          </button>
+      )}
     </div>
   );
 
-  const rosterManagementContent = (
+  const rosterManagementContent = canEdit ? (
     <div>
         {!isAddingPlayer ? (
             <button
@@ -659,7 +720,7 @@ const SquadPage: React.FC = () => {
             </div>
         )}
     </div>
-  );
+  ) : null;
 
 
   return (
@@ -699,16 +760,27 @@ const SquadPage: React.FC = () => {
         </div>
       ) : (
         isDesktop ? (
-            <div style={styles.desktopGrid}>
-                <div style={styles.column}>
-                    {analysisContent}
-                    <PlayerComparator squadStats={squadStats} allPlayerNames={allPlayerNames} />
-                    {rosterManagementContent}
+            <>
+                <div style={styles.desktopGrid}>
+                    <div style={styles.column}>
+                        {tableContent}
+                    </div>
+                    <div style={styles.column}>
+                        {analysisContent}
+                        <PlayerComparator squadStats={squadStats} allPlayerNames={allPlayerNames} />
+                        {rosterManagementContent}
+                    </div>
                 </div>
-                <div style={styles.column}>
-                    {tableContent}
+                <div style={{ marginTop: theme.spacing.extraLarge }}>
+                   <Card title="Mejores Asociaciones (Mapa de Calor)">
+                        <p style={styles.cardDescription}>Análisis de la química y rendimiento entre todos los jugadores.</p>
+                        <AssociationHeatmap 
+                            players={associationData.allPlayers} 
+                            pairs={associationData.allPairs} 
+                        />
+                   </Card>
                 </div>
-            </div>
+            </>
         ) : (
             <>
                 {analysisContent}

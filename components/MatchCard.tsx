@@ -33,7 +33,7 @@ const resultAbbreviations: Record<'VICTORIA' | 'DERROTA' | 'EMPATE', string> = {
 
 const MatchCard: React.FC<MatchCardProps> = ({ match, allMatches, allPlayers, allTournaments, onDelete, onEdit, onUpdateMatchDetails, isReadOnly = false, sortBy }) => {
   const { theme } = useTheme();
-  const { tournamentSettings, setViewingPlayerName, playerProfiles } = useData();
+  const { tournamentSettings, setViewingPlayerName, playerProfiles, userRole } = useData();
   const { result, teamName, opponentName, teamScore, opponentScore, date, tournament, notes, players, incidents } = match;
   const [isExpanded, setIsExpanded] = useState(false);
   const [isEditingPlayers, setIsEditingPlayers] = useState(false);
@@ -42,6 +42,8 @@ const MatchCard: React.FC<MatchCardProps> = ({ match, allMatches, allPlayers, al
   const [editingTournament, setEditingTournament] = useState('');
   const [shareStatus, setShareStatus] = useState<'idle' | 'copying' | 'copied' | 'error'>('idle');
   const [editingMinuteIndex, setEditingMinuteIndex] = useState<number | null>(null);
+
+  const canEdit = ['owner', 'admin', 'editor'].includes(userRole);
 
   const matchForm = useMemo(() => {
     const currentTournament = match.tournament;
@@ -647,9 +649,11 @@ ${playerStats}`;
                       <div>
                           <div style={styles.playersHeader}>
                               <h4 style={styles.sectionHeading}><TeamIcon /> Detalles del Partido</h4>
-                              <button onClick={handleEditPlayersClick} style={{...styles.actionButton, ...styles.editButton, margin: 0}}>
-                                  { (match.players?.length || match.tournament || match.incidents?.length) ? 'Editar' : '+ Añadir Info'}
-                              </button>
+                              {canEdit && (
+                                  <button onClick={handleEditPlayersClick} style={{...styles.actionButton, ...styles.editButton, margin: 0}}>
+                                      { (match.players?.length || match.tournament || match.incidents?.length) ? 'Editar' : '+ Añadir Info'}
+                                  </button>
+                              )}
                           </div>
                           {incidents && incidents.length > 0 && (
                             <div style={{marginBottom: theme.spacing.medium}}>
@@ -878,7 +882,7 @@ ${playerStats}`;
             )}
             
              <div style={styles.actionsContainer}>
-                {!isReadOnly && (
+                {!isReadOnly && canEdit && (
                   <>
                     <button onClick={onEdit} style={{...styles.actionButton, ...styles.editButton}} aria-label="Editar partido">EDITAR</button>
                     <button onClick={onDelete} style={{...styles.actionButton, ...styles.deleteButton}} aria-label="Eliminar partido">

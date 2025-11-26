@@ -1,3 +1,4 @@
+
 import type { ReactNode } from 'react';
 
 export interface PlayerPerformance {
@@ -248,4 +249,11 @@ export interface PlayerProfileData {
 export interface TeamProfileData {
   shieldUrl?: string;
   isHidden?: boolean;
+}
+
+export type TeamRole = 'owner' | 'admin' | 'editor' | 'viewer';
+
+export interface TeamMember {
+  email: string;
+  role: TeamRole;
 }
